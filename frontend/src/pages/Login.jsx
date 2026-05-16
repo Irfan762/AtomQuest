@@ -130,21 +130,21 @@ const Login = () => {
                 <div className="grid grid-cols-1 gap-y-1.5">
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("admin@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("admin@company.com", "admin123")}
                   >
                     <span>admin@company.com</span>
                     <span className="text-right opacity-50">Admin Role</span>
                   </div>
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("manager@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("manager@company.com", "manager123")}
                   >
                     <span>manager@company.com</span>
                     <span className="text-right opacity-50">Manager Role</span>
                   </div>
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("alice@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("alice@company.com", "alice123")}
                   >
                     <span>alice@company.com</span>
                     <span className="text-right opacity-50">Employee Role</span>
