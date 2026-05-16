@@ -32,6 +32,12 @@ app.use("/api/notifications", require("./src/routes/notification.routes"));
 app.use("/api/export", require("./src/routes/export.routes"));
 app.use("/api/ai", require("./src/routes/ai.routes"));
 
+app.get("/", (req, res) => res.json({ 
+  message: "GoalGrid API is live.",
+  version: "1.0.0",
+  docs: "/api/health"
+}));
+
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
 // Error Handler

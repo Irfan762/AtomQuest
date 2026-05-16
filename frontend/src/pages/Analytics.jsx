@@ -8,7 +8,9 @@ import {
   TrendingUp, Users, Briefcase, Award, Zap, 
   ArrowUpRight, ArrowDownRight, Target, CheckCircle2 
 } from "lucide-react";
+import { motion } from "framer-motion";
 import api from "../lib/api";
+import { Badge } from "../components/ui/badge";
 
 const Analytics = () => {
   const [data, setData] = useState(null);
@@ -29,7 +31,12 @@ const Analytics = () => {
     }
   };
 
-  if (loading) return <div className="h-full flex items-center justify-center">Loading analytics...</div>;
+  if (loading) return (
+    <div className="h-full flex flex-col items-center justify-center space-y-4">
+      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      <p className="text-sm font-bold text-muted-foreground animate-pulse tracking-widest uppercase">Compiling Intelligence...</p>
+    </div>
+  );
 
   const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
 
@@ -125,6 +132,44 @@ const Analytics = () => {
                 <Bar dataKey="achieved" fill="#10b981" radius={[4, 4, 0, 0]} name="Actual" />
               </BarChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Predictive Risk Analytics */}
+        <Card className="glass lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+               <TrendingUp className="w-5 h-5 text-rose-500" /> Goal Risk Intelligence
+            </CardTitle>
+            <CardDescription>Predictive analysis of organizational objectives likely to miss deadlines.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+              {data?.risk_analysis?.sort((a, b) => b.score - a.score).slice(0, 6).map((risk) => (
+                <div key={risk.id} className="space-y-1.5 p-3 rounded-lg bg-secondary/10 hover:bg-secondary/20 transition-colors">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold truncate max-w-[150px]">{risk.title}</span>
+                    <Badge variant="outline" className={`${
+                      risk.indicator === "Red" ? "border-rose-500 text-rose-500 bg-rose-500/5" : 
+                      risk.indicator === "Yellow" ? "border-amber-500 text-amber-500 bg-amber-500/5" : 
+                      "border-emerald-500 text-emerald-500 bg-emerald-500/5"
+                    } text-[10px] px-1 py-0`}>
+                      {risk.indicator}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                     <div className="flex-1 h-1 bg-secondary rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }} 
+                          animate={{ width: `${risk.score}%` }} 
+                          className={`h-full ${risk.indicator === "Red" ? "bg-rose-500" : "bg-amber-500"}`} 
+                        />
+                     </div>
+                     <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">{risk.score}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>
