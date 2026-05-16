@@ -42,6 +42,12 @@ const Login = () => {
     }
   };
 
+  const handleDemoClick = (demoEmail, demoPassword) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    toast.info(`Auto-filled ${demoEmail} credentials`);
+  };
+
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row bg-background">
       {/* Left Panel: Hero Section */}
@@ -121,15 +127,28 @@ const Login = () => {
 
               <div className="w-full bg-secondary/30 p-4 rounded-xl border border-border/50 text-[10px] font-mono text-muted-foreground space-y-2">
                 <div className="font-bold uppercase tracking-widest text-muted-foreground/70 mb-1">Demo Accounts</div>
-                <div className="grid grid-cols-2 gap-x-4">
-                  <span>admin@company.com</span>
-                  <span className="text-right">Admin@123</span>
-                  <span>manager@company.com</span>
-                  <span className="text-right">Manager@123</span>
-                  <span>alice@company.com</span>
-                  <span className="text-right">Alice@123</span>
-                  <span>bob@company.com</span>
-                  <span className="text-right">Bob@123</span>
+                <div className="grid grid-cols-1 gap-y-1.5">
+                  <div 
+                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                    onClick={() => handleDemoClick("admin@company.com", "Password@123")}
+                  >
+                    <span>admin@company.com</span>
+                    <span className="text-right opacity-50">Admin Role</span>
+                  </div>
+                  <div 
+                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                    onClick={() => handleDemoClick("manager@company.com", "Password@123")}
+                  >
+                    <span>manager@company.com</span>
+                    <span className="text-right opacity-50">Manager Role</span>
+                  </div>
+                  <div 
+                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                    onClick={() => handleDemoClick("alice@company.com", "Password@123")}
+                  >
+                    <span>alice@company.com</span>
+                    <span className="text-right opacity-50">Employee Role</span>
+                  </div>
                 </div>
               </div>
             </CardFooter>
