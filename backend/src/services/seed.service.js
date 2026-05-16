@@ -19,21 +19,21 @@ async function seedDemoUsers() {
   const admin = await upsertSeedUser({
     name: "Admin User",
     email: process.env.ADMIN_EMAIL || "admin@company.com",
-    password: process.env.ADMIN_PASSWORD || "admin123",
+    password: process.env.ADMIN_PASSWORD || "Password@123",
     role: "admin",
     department: "Operations",
   });
   const manager = await upsertSeedUser({
     name: "Manager User",
     email: process.env.MANAGER_EMAIL || "manager@company.com",
-    password: process.env.MANAGER_PASSWORD || "manager123",
+    password: process.env.MANAGER_PASSWORD || "Password@123",
     role: "manager",
     department: "Engineering",
   });
   await upsertSeedUser({
     name: "Alice Employee",
     email: process.env.EMP1_EMAIL || "alice@company.com",
-    password: process.env.EMP1_PASSWORD || "alice123",
+    password: process.env.EMP1_PASSWORD || "Password@123",
     role: "employee",
     manager_id: manager.id,
     department: "Engineering",
@@ -41,7 +41,7 @@ async function seedDemoUsers() {
   await upsertSeedUser({
     name: "Bob Employee",
     email: process.env.EMP2_EMAIL || "bob@company.com",
-    password: process.env.EMP2_PASSWORD || "bob123",
+    password: process.env.EMP2_PASSWORD || "Password@123",
     role: "employee",
     manager_id: manager.id,
     department: "Engineering",
