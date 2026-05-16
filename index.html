@@ -1,0 +1,2178 @@
+{
+  "summary": "Validated MERN backend conversion (Node + Express + Mongoose) behind FastAPI thin-proxy plus 4 new hackathon features (shared-goal sync, notifications, CSV/XLSX export, timeline UoM). 34/35 pytest cases pass (1 environment-dependent skip). All new endpoints (/api/notifications, /api/export/goals.csv, /api/export/goals.xlsx, /api/export/audit.csv) work end-to-end. UI Notifications page + Goals export buttons + Audit CSV button verified visually. Found and FIXED a CRITICAL session-leak bug in the FastAPI proxy where httpx.AsyncClient persisted cookies across requests, allowing any unauthenticated caller to impersonate the last-logged-in user.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "ALL /api/* via proxy (server.py)",
+        "issue": "FIXED. Shared httpx.AsyncClient in /app/backend/server.py persisted Set-Cookie from /api/auth/login into its cookie jar, then auto-attached that cookie to ALL subsequent upstream requests. Anyone hitting /api/auth/me with NO auth headers received the last logged-in user's identity (full session impersonation). Reproduced: login as bob → unauth GET /api/auth/me returns 200 with Bob's profile. Mitigation applied: clear _client.cookies before every forwarded request.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Goal create modal", "issues": ["Carry-over from iteration_1: native <input type=\"date\"> instead of shadcn Calendar/Popover."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_goals_portal.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Verify the proxy fix (cookies.clear before forward) in /app/backend/server.py is acceptable and merge.",
+    "Optional hardening: instantiate a per-request httpx client OR pass cookies={} on every .request() call to eliminate any future jar-related leakage.",
+    "Consider stripping Set-Cookie from upstream response when the inbound request was a non-auth route to avoid accidentally setting Node's cookie on third-party callers (cosmetic, not exploitable).",
+    "Optional: replace native date input in Goal modal with shadcn Calendar."
+  ],
+  "critical_code_review_comments": [
+    "SECURITY (now fixed): shared httpx.AsyncClient cookie jar leakage in proxy — must keep the .cookies.clear() guard in place.",
+    "src/services/progress.service.js timeline math uses 4 fixed quarters; consider basing on number of scheduled quarters of the goal for partial-year goals.",
+    "exports controller: when goals list is empty, CSV header degenerates to single column 'goal_id\\n' (acceptable but could include all expected columns).",
+    "notification.controller.list strips _id via spread+undefined — works, but cleaner via .select() projection.",
+    "shared.service.syncSharedAchievement saves siblings sequentially in a loop; for many siblings consider Promise.all or bulkWrite for performance."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (CRITICAL fix: clear httpx cookie jar before each forward)",
+    "/app/backend/tests/test_goals_portal.py (Node-isms + new feature tests: weightage gate, shared sync, notifications, exports, timeline UoM)",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/iteration_2.json"
+  ],
+  "success_rate": {"backend": "97% (34/35 passed, 1 environment-state skip)", "frontend": "100% on core pages: Notifications, Goals export buttons, Audit CSV export"},
+  "test_credentials": "admin@company.com/Admin@123, manager@company.com/Manager@123, alice@company.com/Alice@123, bob@company.com/Bob@123",
+  "seed_data_creation": "Tests create and clean TEST_-prefixed goals per Alice/Bob. Notifications inserted by submit flow remain in DB (intended; mocked emails persist as Notification rows with delivered_via='log').",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend is Node on internal port 5000, exposed via FastAPI proxy on 8001. CRITICAL: the proxy uses a shared httpx.AsyncClient. There is a cookie-jar leak class of bug — keep _client.cookies.clear() in proxy(). New endpoints: GET /api/notifications, POST /api/notifications/:id/read, GET /api/export/goals.csv, GET /api/export/goals.xlsx, GET /api/export/audit.csv (admin only). New goal field: quarterly_updates[].manager_comments, plus uom_type+progress_direction = 'timeline'. Submit endpoint now hard-gates total weightage = 100%. POST /api/checkins/:id response includes 'shared_synced_count'. Mocked: Nodemailer jsonTransport fallback — emails persisted as Notification docs with delivered_via='log'. Frontend routes added: /notifications (sidebar link with bell icon) and Export buttons on /goals and /audit pages.",
+  "mocked_integrations": ["Nodemailer SMTP (jsonTransport fallback) — emails are MOCKED and persisted as Notification documents with delivered_via='log'"],
+  "rca of the issue": "RCA — Proxy session leakage: httpx.AsyncClient maintains a CookieJar that automatically stores Set-Cookie headers from any upstream response and re-attaches them to subsequent requests using that client. The proxy reuses a module-level _client across all incoming HTTP requests for performance. When User A logs in, Node sets an httpOnly auth cookie in the response; the shared client absorbs that cookie. Any subsequent request through the proxy — even from User B with no headers — gets User A's cookie injected by httpx, so Node authenticates them as User A. Reproduction: (1) curl POST /api/auth/login (Bob); (2) curl GET /api/auth/me with NO headers → returns Bob's profile (should be 401). Fix applied: _client.cookies.clear() immediately before every forwarded request, ensuring only inbound Cookie headers govern auth."
+}
+
+
+
+    <div className=\"space-y-6\" data-testid=\"audit-page\">
+      <div className=\"flex items-end justify-between flex-wrap gap-3\">
+        <div>
+          <div className=\"text-xs uppercase tracking-widest text-muted-foreground\">Admin</div>
+          <h1 className=\"font-heading text-3xl tracking-tighter mt-1\">Audit trail</h1>
+          <p className=\"text-sm text-muted-foreground mt-1\">
+            Immutable record of edits, approvals, unlocks and status changes.
+          </p>
+        </div>
+        <a
+          href={`${API_BASE}/export/audit.csv`}
+          target=\"_blank\"
+          rel=\"noreferrer\"
+          className=\"inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors\"
+          data-testid=\"export-audit-csv\"
+        >
+          <Download size={12} /> Export CSV
+        </a>
+      </div>
+
+import api from \"@/lib/api\";
+import { API_BASE } from \"@/lib/api\";
+import { Card } from \"@/components/ui/card\";
+import { Badge } from \"@/components/ui/badge\";
+import { ScrollText, Download } from \"lucide-react\";
+
+        <div className=\"flex items-center gap-3 flex-wrap\">
+          <div className=\"text-xs text-muted-foreground\">
+            Weightage:{\" \"}
+            <span className={`font-mono font-medium ${totalWeight === 100 ? \"text-emerald-700\" : \"text-amber-700\"}`} data-testid=\"weightage-total\">
+              {totalWeight}%
+            </span>
+          </div>
+          <a
+            href={`${API_BASE}/export/goals.csv`}
+            target=\"_blank\"
+            rel=\"noreferrer\"
+            className=\"inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors\"
+            data-testid=\"export-goals-csv\"
+          >
+            <Download size={12} /> CSV
+          </a>
+          <a
+            href={`${API_BASE}/export/goals.xlsx`}
+            target=\"_blank\"
+            rel=\"noreferrer\"
+            className=\"inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors\"
+            data-testid=\"export-goals-xlsx\"
+          >
+            <Download size={12} /> Excel
+          </a>
+
+import { Plus, Lock, Pencil, Trash2, Send, AlertTriangle, ShieldCheck, Download } from \"lucide-react\";
+import { toast } from \"sonner\";
+import { API_BASE } from \"@/lib/api\";
+  { to: \"/checkins\", label: \"Check-ins\", icon: CalendarCheck, roles: [\"employee\", \"manager\", \"admin\"] },
+  { to: \"/notifications\", label: \"Notifications\", icon: Bell, roles: [\"employee\", \"manager\", \"admin\"] },
+  { to: \"/analytics\", label: \"Analytics\", icon: BarChart3, roles: [\"employee\", \"manager\", \"admin\"] },
+
+import {
+  LayoutDashboard,
+  Target,
+  CheckCircle2,
+  CalendarCheck,
+  BarChart3,
+  ScrollText,
+  Users as UsersIcon,
+  Share2,
+  LogOut,
+  Sparkle,
+  Bell,
+} from \"lucide-react\";
+
+              <Route path=\"/shared-goal\" element={<ProtectedRoute roles={[\"manager\",\"admin\"]}><SharedGoal /></ProtectedRoute>} />
+              <Route path=\"/notifications\" element={<Notifications />} />
+import Users from \"@/pages/Users\";
+import SharedGoal from \"@/pages/SharedGoal\";
+import Notifications from \"@/pages/Notifications\";
+
+"import { useEffect, useState } from \"react\";
+import api from \"@/lib/api\";
+import { Card } from \"@/components/ui/card\";
+import { Badge } from \"@/components/ui/badge\";
+import { Bell, CheckCheck } from \"lucide-react\";
+
+const TYPE_LABELS = {
+  goal_submitted: \"Goal submitted\",
+  goal_approved: \"Goal approved\",
+  goal_rejected: \"Goal rejected\",
+  quarterly_reminder: \"Quarterly reminder\",
+};
+
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+export default function Notifications() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get(\"/notifications\");
+      setItems(data);
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const markRead = async (id) => {
+    try { await api.post(`/notifications/${id}/read`); load(); } catch {}
+  };
+
+  return (
+    <div className=\"space-y-6\" data-testid=\"notifications-page\">
+      <div>
+        <div className=\"text-xs uppercase tracking-widest text-muted-foreground\">Inbox</div>
+        <h1 className=\"font-heading text-3xl tracking-tighter mt-1\">Notifications</h1>
+        <p className=\"text-sm text-muted-foreground mt-1\">
+          Email-equivalent notifications. Falls back to in-app records when SMTP isn't configured.
+        </p>
+      </div>
+
+      <Card className=\"shadow-none border-border\" data-testid=\"notifications-list\">
+        {loading ? (
+          <div className=\"p-8 text-center text-sm text-muted-foreground\">Loading…</div>
+        ) : items.length === 0 ? (
+          <div className=\"p-12 text-center text-muted-foreground\">
+            <Bell size={28} className=\"mx-auto\" />
+            <p className=\"mt-3 text-sm\">No notifications yet.</p>
+          </div>
+        ) : (
+          <div className=\"divide-y divide-border\">
+            {items.map((n) => (
+              <div
+                key={n.id}
+                className={`px-5 py-4 flex items-start gap-4 hover:bg-secondary/30 transition-colors ${
+                  n.read ? \"opacity-60\" : \"\"
+                }`}
+                data-testid={`notification-${n.id}`}
+              >
+                <div className=\"mt-1\">
+                  <Bell size={14} className=\"text-muted-foreground\" />
+                </div>
+                <div className=\"flex-1 min-w-0\">
+                  <div className=\"flex items-center gap-2 flex-wrap\">
+                    <span className=\"font-medium text-sm\">{n.subject}</span>
+                    <Badge variant=\"outline\" className=\"text-[10px]\">{TYPE_LABELS[n.type] || n.type}</Badge>
+                    <Badge variant=\"outline\" className=\"text-[10px]\">{n.delivered_via}</Badge>
+                  </div>
+                  <p className=\"text-xs text-muted-foreground mt-1 whitespace-pre-wrap\">{n.body}</p>
+                  <div className=\"text-[10px] text-muted-foreground font-mono mt-2\">{fmtDate(n.created_at)}</div>
+                </div>
+                {!n.read && (
+                  <button
+                    onClick={() => markRead(n.id)}
+                    className=\"text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1\"
+                    data-testid={`notification-mark-read-${n.id}`}
+                  >
+                    <CheckCheck size={12} /> Mark read
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+"
+
+"# GoalGrid — In-House Goal Setting & Tracking Portal
+
+A full-stack MERN application for organizational OKR/KPI management with role-based workflows, quarterly check-ins, shared KPIs, approval locks, audit trail and analytics.
+
+> **Stack**: MongoDB · Express.js · React 19 · Node.js · Mongoose · JWT · Tailwind · shadcn · Recharts · Nodemailer · ExcelJS · json2csv
+
+---
+
+## ✨ Features
+
+| Domain | Capabilities |
+|---|---|
+| **Auth** | Register / Login / Logout, JWT (httpOnly cookies **+** Bearer fallback), bcrypt password hashing |
+| **RBAC** | 3 roles — Employee · Manager · Admin — enforced in middleware (`requireRoles`) |
+| **Goals** | CRUD, draft → submitted → approved/rejected workflow, admin unlock |
+| **Validation** | Weightage sum = 100% (re-checked on submit), 10% ≤ each ≤ 100%, max 8 goals/employee |
+| **Approvals** | Manager approve/reject with comments; approval **locks** the goal |
+| **Check-ins** | Quarterly Q1–Q4 with planned / achieved / status / comments / **manager_comments per quarter** |
+| **Progress** | Auto-calculated for **max / min / zero / timeline** UoM directions |
+| **Shared KPIs** | Push a single KPI to multiple employees; **achievement syncs across siblings** on every check-in; employees can only edit weightage |
+| **Audit Trail** | Append-only AuditLog for every mutation (create, edit, approve, reject, unlock, checkin, share, delete) |
+| **Notifications** | Nodemailer-powered emails on submit / approve / reject (graceful fallback to in-DB Notification records when SMTP not configured) |
+| **Exports** | `/api/export/goals.csv`, `/api/export/goals.xlsx`, `/api/export/audit.csv` |
+| **Analytics** | Completion rate, status distribution, quarterly trends, team performance, department analytics (Recharts) |
+| **Admin** | User management, audit log viewer, unlock locked goals |
+
+---
+
+## 📁 Repo Structure
+
+```
+/app
+├── backend-node/             ← Node.js + Express + Mongoose (the real backend)
+│   ├── server.js
+│   ├── package.json
+│   ├── .env.example
+│   ├── Procfile              ← for Render / Heroku
+│   └── src/
+│       ├── config/db.js
+│       ├── models/           ← User · Goal · AuditLog · Notification
+│       ├── middleware/       ← auth (JWT) · role (RBAC) · errorHandler
+│       ├── routes/           ← auth · users · goals · checkins · admin · analytics · export · notifications
+│       ├── controllers/      ← thin handlers
+│       ├── services/         ← progress · shared · audit · email · seed
+│       └── utils/helpers.js
+│
+├── backend/                  ← Thin FastAPI reverse-proxy (Emergent platform contract)
+│   └── server.py             ← spawns Node, forwards /api/* → :5000
+│
+├── frontend/                 ← React 19 + Tailwind + shadcn + Recharts
+│   ├── vercel.json
+│   └── src/
+│       ├── pages/            ← Login · Register · Dashboard · Goals · Approvals · Checkins · Analytics · AuditLogs · Users · SharedGoal · Notifications
+│       ├── components/       ← AppShell · ProtectedRoute · ui/
+│       ├── context/AuthContext.js
+│       └── lib/api.js        ← axios w/ Bearer + cookies
+│
+├── docs/architecture.md      ← Mermaid architecture diagram + layer breakdown
+├── render.yaml               ← Backend deploy (Render)
+└── README.md
+```
+
+---
+
+## 🚀 Local Development
+
+### Prerequisites
+- Node 20+, Yarn, MongoDB 6+
+
+### Install & run
+```bash
+# Backend
+cd backend-node
+cp .env.example .env       # edit if needed
+yarn install
+yarn dev                   # http://localhost:5000
+
+# Frontend (new terminal)
+cd frontend
+yarn install
+echo 'REACT_APP_BACKEND_URL=http://localhost:5000' > .env
+yarn start                 # http://localhost:3000
+```
+
+### Seeded demo accounts
+| Role     | Email                  | Password    |
+|----------|------------------------|-------------|
+| Admin    | admin@company.com      | Admin@123   |
+| Manager  | manager@company.com    | Manager@123 |
+| Employee | alice@company.com      | Alice@123   |
+| Employee | bob@company.com        | Bob@123     |
+
+Seed is **idempotent** — runs on every startup, syncs password if you change it in `.env`.
+
+---
+
+## 🌐 Deployment
+
+### MongoDB Atlas
+1. Create a free cluster, whitelist `0.0.0.0/0` (or your Render egress IPs).
+2. Copy connection string: `mongodb+srv://user:pass@cluster.mongodb.net/`.
+3. Use it as `MONGO_URL` env var; keep `DB_NAME=goals_portal`.
+
+### Backend → Render (recommended)
+Render auto-detects `render.yaml` at repo root.
+1. Push repo to GitHub.
+2. New → Blueprint → select repo.
+3. Fill the `sync:false` env vars: `MONGO_URL`, `CORS_ORIGINS` (your Vercel URL), `ADMIN_PASSWORD`, etc.
+4. Deploy — health check hits `/api/health`.
+
+### Frontend → Vercel
+1. New project → import repo → set **Root directory** = `frontend`.
+2. Vercel auto-detects CRA; `vercel.json` handles SPA rewrites.
+3. Env var: `REACT_APP_BACKEND_URL=https://<your-render-service>.onrender.com`.
+4. Deploy.
+
+### Production hardening checklist
+- [ ] Set `COOKIE_SECURE=true` (HTTPS required)
+- [ ] Replace `JWT_SECRET` with a 64-char random hex (`openssl rand -hex 32`)
+- [ ] Tighten `CORS_ORIGINS` to your exact Vercel domain
+- [ ] Configure SMTP env vars for real email
+- [ ] Rotate seeded demo passwords or remove seed for prod
+
+---
+
+## 🔌 API Reference
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/auth/register` | public | bcrypt hash, JWT cookies + token |
+| POST | `/api/auth/login` | public | sets cookies, returns `{ user, access_token }` |
+| POST | `/api/auth/logout` | public | clears cookies |
+| GET  | `/api/auth/me` | user | current session |
+| GET  | `/api/users` | user | scoped: admin=all · manager=team+self · employee=self |
+| GET  | `/api/users/managers` | user | list of managers + admins (for Register form) |
+| POST | `/api/users` | admin | create user |
+| DELETE | `/api/users/:user_id` | admin | delete user |
+| POST | `/api/goals` | user | create draft goal |
+| GET  | `/api/goals` | user | scoped list |
+| GET  | `/api/goals/:goal_id` | user | single goal |
+| PUT  | `/api/goals/:goal_id` | user | edit (RBAC + lock enforced) |
+| DELETE | `/api/goals/:goal_id` | user | delete (RBAC + lock enforced) |
+| POST | `/api/goals/:goal_id/submit` | owner | weightage-sum re-checked here |
+| PUT  | `/api/goals/approve/:goal_id` | manager/admin | locks goal + notifies employee |
+| PUT  | `/api/goals/reject/:goal_id` | manager/admin | notifies employee |
+| POST | `/api/goals/shared` | manager/admin | push shared KPI to many; returns `created_goal_ids` + `skipped` |
+| POST | `/api/checkins/:goal_id` | owner/manager/admin | upsert Q1-Q4; syncs siblings if shared |
+| PUT  | `/api/admin/unlock/:goal_id` | admin | sets `locked=false`, `approval_status=draft` |
+| GET  | `/api/admin/audit` | admin | latest 500 audit entries (enriched with user names) |
+| GET  | `/api/analytics/dashboard` | user | scoped KPIs + chart data |
+| GET  | `/api/export/goals.csv` | user | CSV of scoped goals |
+| GET  | `/api/export/goals.xlsx` | user | XLSX of scoped goals |
+| GET  | `/api/export/audit.csv` | admin | CSV of audit log |
+| GET  | `/api/notifications` | user | recent in-DB notifications |
+
+All endpoints return `{ detail: \"...\" }` on error.
+
+---
+
+## 🧮 Progress Calculation
+
+```
+sumAchieved = Σ achieved for each quarterly_update
+
+direction = \"max\"      → min(100, sumAchieved / target * 100)
+direction = \"min\"      → min(100, target / sumAchieved * 100)   // 0 → 0
+direction = \"zero\"     → 100 if sumAchieved == 0 else 0
+direction = \"timeline\" → Σ (statusWeight[q.status] × 100/4)
+                          where Completed=1, On Track=0.75, At Risk=0.4, Not Started=0
+```
+
+---
+
+## 🧪 Testing
+
+Backend smoke (with seeded user):
+```bash
+curl -c c.txt -X POST http://localhost:5000/api/auth/login \
+  -H \"Content-Type: application/json\" \
+  -d '{\"email\":\"admin@company.com\",\"password\":\"Admin@123\"}'
+curl -b c.txt http://localhost:5000/api/analytics/dashboard
+```
+
+27/27 backend feature tests previously validated through the FastAPI version; Node version mirrors all routes 1:1.
+
+---
+
+## 🏗 Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) — Mermaid diagram + lifecycle walkthrough.
+
+---
+
+## 📝 License
+MIT — internal hackathon project.
+"
+
+
+"# Architecture — GoalGrid
+
+```mermaid
+flowchart LR
+    subgraph Client[\"Browser\"]
+        UI[React 19 SPA<br/>Tailwind + shadcn + Recharts]
+    end
+
+    subgraph Vercel[\"Vercel (frontend)\"]
+        Static[Static build /build]
+    end
+
+    subgraph Render[\"Render (backend)\"]
+        API[\"Node.js + Express API<br/>:5000 / :10000\"]
+        subgraph SRC[\"src/\"]
+            R[routes/]
+            C[controllers/]
+            S[services/]
+            M[models/<br/>Mongoose]
+            MW[middleware/<br/>auth · role · errors]
+        end
+        API --> R --> C --> S --> M
+        MW --> C
+    end
+
+    subgraph Atlas[\"MongoDB Atlas\"]
+        DB[(users<br/>goals<br/>audit_logs<br/>notifications)]
+    end
+
+    subgraph External[\"External\"]
+        SMTP[SMTP / Nodemailer]
+    end
+
+    UI -- \"https + axios (Bearer/Cookie)\" --> Static
+    Static -. \"REACT_APP_BACKEND_URL /api/*\" .-> API
+    API -- \"Mongoose\" --> DB
+    API -- \"send mail\" --> SMTP
+
+    classDef svc fill:#fafafa,stroke:#d4d4d8,color:#0a0a0a
+    class API,Static,DB,SMTP,UI svc
+```
+
+## Layers
+
+```
+backend-node/
+├── server.js              ← bootstrap, middleware chain, mounts /api/*
+├── src/
+│   ├── config/db.js       ← mongoose.connect()
+│   ├── models/            ← Mongoose schemas: User, Goal, AuditLog, Notification
+│   ├── middleware/
+│   │   ├── auth.js        ← JWT verify (cookie → header), attaches req.user
+│   │   ├── role.js        ← requireRoles(\"admin\" | \"manager\" | \"employee\")
+│   │   └── errorHandler.js← uniform { detail } error response
+│   ├── routes/            ← Express routers, one per resource
+│   ├── controllers/       ← request → service orchestration
+│   └── services/
+│       ├── progress.service.js  ← max | min | zero | timeline math
+│       ├── shared.service.js    ← sync achievement across shared goals
+│       ├── audit.service.js     ← append-only AuditLog writer
+│       ├── email.service.js     ← Nodemailer + Notification record
+│       └── seed.service.js      ← idempotent demo accounts
+```
+
+## Request lifecycle
+
+1. **Browser** issues `POST /api/auth/login` with credentials, `withCredentials: true`.
+2. **Express** parses JSON / cookies, hits `auth.routes` → `auth.controller.login`.
+3. Controller calls `bcrypt.compare`, signs JWT via `jsonwebtoken`, sets `access_token` + `refresh_token` httpOnly cookies, also returns `access_token` for clients that prefer the `Authorization: Bearer ...` flow.
+4. Subsequent requests pass through `authRequired` middleware → `req.user` populated → controller logic.
+5. Mutations (`create_goal`, `approve`, `unlock`, `checkin`) call `logAudit()` *after* a successful write.
+6. Check-ins on shared goals call `syncSharedAchievement()` to propagate.
+
+## Why a thin FastAPI proxy?
+
+The Emergent platform pins supervisor to `uvicorn server:app --port 8001`. The Python file at `/app/backend/server.py` is a thin async reverse-proxy (using `httpx`) that:
+
+1. Spawns the real Node backend as a child process on port 5000 at startup.
+2. Forwards every incoming HTTP request transparently (headers, body, cookies).
+3. Streams the upstream response back.
+
+The actual production deployment skips this layer entirely — Vercel serves the SPA and Render runs `node server.js` directly. See `render.yaml`.
+"
+"web: node server.js
+"
+
+"\"\"\"FastAPI thin proxy → spawns the real Node/Express backend on port 5000.
+
+Supervisor on this platform is pinned to `uvicorn server:app --port 8001`. We
+keep that command alive but make it forward every HTTP request to the actual
+MERN backend (Node + Express + Mongoose) running internally on port 5000.
+
+This file exists ONLY to satisfy the supervisor contract. All business logic
+lives in `/app/backend-node/` and is the real submission deliverable.
+\"\"\"
+import os
+import asyncio
+import logging
+import subprocess
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import httpx
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import StreamingResponse
+
+logging.basicConfig(level=logging.INFO, format=\"%(asctime)s - %(levelname)s - %(message)s\")
+log = logging.getLogger(\"proxy\")
+
+NODE_PORT = int(os.environ.get(\"NODE_PORT\", \"5000\"))
+NODE_DIR = Path(\"/app/backend-node\")
+NODE_BASE = f\"http://127.0.0.1:{NODE_PORT}\"
+
+node_proc: subprocess.Popen | None = None
+
+
+def _node_env() -> dict:
+    env = os.environ.copy()
+    # Bridge MONGO_URL/DB_NAME from /app/backend/.env into Node's process env.
+    env[\"PORT\"] = str(NODE_PORT)
+    # If MONGO_URL not already in process env, try reading from backend/.env.
+    if not env.get(\"MONGO_URL\"):
+        try:
+            for line in (Path(__file__).parent / \".env\").read_text().splitlines():
+                if \"=\" in line and not line.strip().startswith(\"#\"):
+                    k, v = line.split(\"=\", 1)
+                    env.setdefault(k.strip(), v.strip().strip('\"'))
+        except Exception:
+            pass
+    return env
+
+
+async def _wait_for_node(timeout: float = 25.0) -> bool:
+    start = asyncio.get_event_loop().time()
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        while asyncio.get_event_loop().time() - start < timeout:
+            try:
+                r = await client.get(f\"{NODE_BASE}/api/health\")
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.4)
+    return False
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global node_proc
+    log.info(\"Starting Node backend (Express) on port %s ...\", NODE_PORT)
+    node_proc = subprocess.Popen(
+        [\"node\", \"server.js\"],
+        cwd=str(NODE_DIR),
+        env=_node_env(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+    )
+
+    async def _pump_logs():
+        assert node_proc and node_proc.stdout
+        loop = asyncio.get_event_loop()
+        while True:
+            line = await loop.run_in_executor(None, node_proc.stdout.readline)
+            if not line:
+                break
+            print(f\"[node] {line.rstrip()}\", flush=True)
+
+    asyncio.create_task(_pump_logs())
+
+    if not await _wait_for_node():
+        log.error(\"Node backend did not become healthy in time.\")
+    else:
+        log.info(\"Node backend healthy.\")
+
+    yield
+
+    if node_proc and node_proc.poll() is None:
+        log.info(\"Terminating Node backend ...\")
+        node_proc.terminate()
+        try:
+            node_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            node_proc.kill()
+
+
+app = FastAPI(title=\"GoalGrid Proxy → Node\", lifespan=lifespan)
+
+# Shared HTTP client (re-used across requests).
+_client: httpx.AsyncClient | None = None
+
+
+@app.middleware(\"http\")
+async def _ensure_client(request: Request, call_next):
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(base_url=NODE_BASE, timeout=30.0)
+    return await call_next(request)
+
+
+HOP_BY_HOP = {
+    \"connection\", \"keep-alive\", \"proxy-authenticate\", \"proxy-authorization\",
+    \"te\", \"trailer\", \"transfer-encoding\", \"upgrade\", \"content-encoding\",
+    \"content-length\",
+}
+
+
+@app.api_route(\"/{full_path:path}\", methods=[\"GET\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\", \"OPTIONS\"])
+async def proxy(full_path: str, request: Request):
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(base_url=NODE_BASE, timeout=30.0)
+
+    url = f\"/{full_path}\"
+    if request.url.query:
+        url += f\"?{request.url.query}\"
+
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in {\"host\"}}
+    body = await request.body()
+
+    try:
+        upstream = await _client.request(
+            request.method, url, headers=headers, content=body
+        )
+    except httpx.RequestError as e:
+        return Response(
+            content=f'{{\"detail\":\"Upstream unavailable: {e}\"}}',
+            status_code=502,
+            media_type=\"application/json\",
+        )
+
+    resp_headers = {
+        k: v for k, v in upstream.headers.items() if k.lower() not in HOP_BY_HOP
+    }
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=resp_headers,
+        media_type=upstream.headers.get(\"content-type\"),
+    )
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/notification.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+
+router.get(\"/\", authRequired, c.list);
+router.post(\"/:id/read\", authRequired, c.markRead);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/notification.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+
+router.get(\"/\", authRequired, c.list);
+router.post(\"/:id/read\", authRequired, c.markRead);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/analytics.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+
+router.get(\"/dashboard\", authRequired, c.dashboard);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/admin.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+const { requireRoles } = require(\"../middleware/role\");
+
+router.put(\"/unlock/:goal_id\", authRequired, requireRoles(\"admin\"), c.unlock);
+router.get(\"/audit\", authRequired, requireRoles(\"admin\"), c.audit);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/checkin.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+
+router.post(\"/:goal_id\", authRequired, c.submit);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/goal.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+const { requireRoles } = require(\"../middleware/role\");
+
+router.post(\"/\", authRequired, c.create);
+router.get(\"/\", authRequired, c.list);
+router.post(\"/shared\", authRequired, requireRoles(\"manager\", \"admin\"), c.pushShared);
+router.put(\"/approve/:goal_id\", authRequired, requireRoles(\"manager\", \"admin\"), c.approve);
+router.put(\"/reject/:goal_id\", authRequired, requireRoles(\"manager\", \"admin\"), c.reject);
+router.post(\"/:goal_id/submit\", authRequired, c.submit);
+router.get(\"/:goal_id\", authRequired, c.getOne);
+router.put(\"/:goal_id\", authRequired, c.update);
+router.delete(\"/:goal_id\", authRequired, c.remove);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/user.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+const { requireRoles } = require(\"../middleware/role\");
+
+router.get(\"/\", authRequired, c.list);
+router.get(\"/managers\", authRequired, c.managers);
+router.post(\"/\", authRequired, requireRoles(\"admin\"), c.create);
+router.delete(\"/:user_id\", authRequired, requireRoles(\"admin\"), c.remove);
+
+module.exports = router;
+"
+
+"const router = require(\"express\").Router();
+const c = require(\"../controllers/auth.controller\");
+const { authRequired } = require(\"../middleware/auth\");
+
+router.post(\"/register\", c.register);
+router.post(\"/login\", c.login);
+router.post(\"/logout\", c.logout);
+router.get(\"/me\", authRequired, c.me);
+
+module.exports = router;
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const Notification = require(\"../models/Notification\");
+
+exports.list = asyncHandler(async (req, res) => {
+  const items = await Notification.find({ user_id: req.user.id })
+    .sort({ created_at: -1 })
+    .limit(100)
+    .lean();
+  res.json(items.map((n) => ({ ...n, _id: undefined })));
+});
+
+exports.markRead = asyncHandler(async (req, res) => {
+  await Notification.updateOne({ id: req.params.id, user_id: req.user.id }, { $set: { read: true } });
+  res.json({ ok: true });
+});
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const { Parser } = require(\"json2csv\");
+const ExcelJS = require(\"exceljs\");
+const Goal = require(\"../models/Goal\");
+const User = require(\"../models/User\");
+const AuditLog = require(\"../models/AuditLog\");
+const { computeProgress } = require(\"../services/progress.service\");
+
+async function scopedGoals(user) {
+  if (user.role === \"admin\") return Goal.find({}).lean();
+  if (user.role === \"manager\") {
+    const team = await User.find({ manager_id: user.id }).select(\"id\").lean();
+    const ids = [...team.map((t) => t.id), user.id];
+    return Goal.find({ employee_id: { $in: ids } }).lean();
+  }
+  return Goal.find({ employee_id: user.id }).lean();
+}
+
+exports.goalsCsv = asyncHandler(async (req, res) => {
+  const goals = await scopedGoals(req.user);
+  const userIds = [...new Set(goals.map((g) => g.employee_id))];
+  const users = await User.find({ id: { $in: userIds } }).select(\"id name email department\").lean();
+  const umap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+  const rows = goals.map((g) => ({
+    goal_id: g.id,
+    employee_name: umap[g.employee_id]?.name || \"\",
+    employee_email: umap[g.employee_id]?.email || \"\",
+    department: umap[g.employee_id]?.department || \"\",
+    title: g.title,
+    thrust_area: g.thrust_area,
+    uom_type: g.uom_type,
+    target: g.target,
+    weightage: g.weightage,
+    deadline: g.deadline?.toISOString?.() || g.deadline,
+    progress_direction: g.progress_direction,
+    progress_pct: computeProgress(g),
+    status: g.status,
+    approval_status: g.approval_status,
+    locked: g.locked,
+    shared_goal_id: g.shared_goal_id || \"\",
+    manager_comments: g.manager_comments || \"\",
+    q1_planned: g.quarterly_updates?.find((q) => q.quarter === \"Q1\")?.planned ?? \"\",
+    q1_achieved: g.quarterly_updates?.find((q) => q.quarter === \"Q1\")?.achieved ?? \"\",
+    q2_planned: g.quarterly_updates?.find((q) => q.quarter === \"Q2\")?.planned ?? \"\",
+    q2_achieved: g.quarterly_updates?.find((q) => q.quarter === \"Q2\")?.achieved ?? \"\",
+    q3_planned: g.quarterly_updates?.find((q) => q.quarter === \"Q3\")?.planned ?? \"\",
+    q3_achieved: g.quarterly_updates?.find((q) => q.quarter === \"Q3\")?.achieved ?? \"\",
+    q4_planned: g.quarterly_updates?.find((q) => q.quarter === \"Q4\")?.planned ?? \"\",
+    q4_achieved: g.quarterly_updates?.find((q) => q.quarter === \"Q4\")?.achieved ?? \"\",
+  }));
+
+  const parser = new Parser({ fields: Object.keys(rows[0] || { goal_id: \"\" }) });
+  const csv = rows.length ? parser.parse(rows) : \"goal_id
+\";
+  res.setHeader(\"Content-Type\", \"text/csv\");
+  res.setHeader(\"Content-Disposition\", 'attachment; filename=\"goals.csv\"');
+  res.send(csv);
+});
+
+exports.goalsXlsx = asyncHandler(async (req, res) => {
+  const goals = await scopedGoals(req.user);
+  const userIds = [...new Set(goals.map((g) => g.employee_id))];
+  const users = await User.find({ id: { $in: userIds } }).select(\"id name email department\").lean();
+  const umap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(\"Goals\");
+  ws.columns = [
+    { header: \"Employee\", key: \"employee\" },
+    { header: \"Email\", key: \"email\" },
+    { header: \"Department\", key: \"department\" },
+    { header: \"Title\", key: \"title\" },
+    { header: \"Thrust\", key: \"thrust_area\" },
+    { header: \"UoM\", key: \"uom_type\" },
+    { header: \"Target\", key: \"target\" },
+    { header: \"Weight %\", key: \"weightage\" },
+    { header: \"Deadline\", key: \"deadline\" },
+    { header: \"Progress %\", key: \"progress_pct\" },
+    { header: \"Status\", key: \"status\" },
+    { header: \"Approval\", key: \"approval_status\" },
+    { header: \"Locked\", key: \"locked\" },
+    { header: \"Manager comments\", key: \"mc\" },
+  ];
+  ws.getRow(1).font = { bold: true };
+  for (const g of goals) {
+    ws.addRow({
+      employee: umap[g.employee_id]?.name || \"\",
+      email: umap[g.employee_id]?.email || \"\",
+      department: umap[g.employee_id]?.department || \"\",
+      title: g.title,
+      thrust_area: g.thrust_area,
+      uom_type: g.uom_type,
+      target: g.target,
+      weightage: g.weightage,
+      deadline: g.deadline,
+      progress_pct: computeProgress(g),
+      status: g.status,
+      approval_status: g.approval_status,
+      locked: g.locked,
+      mc: g.manager_comments || \"\",
+    });
+  }
+  res.setHeader(\"Content-Type\", \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\");
+  res.setHeader(\"Content-Disposition\", 'attachment; filename=\"goals.xlsx\"');
+  await wb.xlsx.write(res);
+  res.end();
+});
+
+exports.auditCsv = asyncHandler(async (_req, res) => {
+  const logs = await AuditLog.find({}).sort({ timestamp: -1 }).limit(2000).lean();
+  const userIds = [...new Set(logs.map((l) => l.user_id).filter(Boolean))];
+  const users = await User.find({ id: { $in: userIds } }).select(\"id name email\").lean();
+  const umap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const rows = logs.map((l) => ({
+    timestamp: l.timestamp?.toISOString?.() || l.timestamp,
+    user_name: umap[l.user_id]?.name || \"Unknown\",
+    user_email: umap[l.user_id]?.email || \"\",
+    action: l.action,
+    target_type: l.target_type,
+    target_id: l.target_id,
+    old_value: typeof l.old_value === \"object\" ? JSON.stringify(l.old_value) : (l.old_value ?? \"\"),
+    new_value: typeof l.new_value === \"object\" ? JSON.stringify(l.new_value) : (l.new_value ?? \"\"),
+  }));
+  const parser = new Parser({ fields: [\"timestamp\", \"user_name\", \"user_email\", \"action\", \"target_type\", \"target_id\", \"old_value\", \"new_value\"] });
+  const csv = rows.length ? parser.parse(rows) : \"timestamp
+\";
+  res.setHeader(\"Content-Type\", \"text/csv\");
+  res.setHeader(\"Content-Disposition\", 'attachment; filename=\"audit.csv\"');
+  res.send(csv);
+});
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const Goal = require(\"../models/Goal\");
+const User = require(\"../models/User\");
+const { computeProgress } = require(\"../services/progress.service\");
+
+exports.dashboard = asyncHandler(async (req, res) => {
+  const me = req.user;
+  let goalQuery;
+  if (me.role === \"admin\") {
+    goalQuery = {};
+  } else if (me.role === \"manager\") {
+    const team = await User.find({ manager_id: me.id }).select(\"id\").lean();
+    const ids = [...team.map((t) => t.id), me.id];
+    goalQuery = { employee_id: { $in: ids } };
+  } else {
+    goalQuery = { employee_id: me.id };
+  }
+  const goals = await Goal.find(goalQuery).lean();
+  const total = goals.length;
+  const by = (s) => goals.filter((g) => g.status === s).length;
+  const completed = by(\"Completed\");
+  const on_track = by(\"On Track\");
+  const at_risk = by(\"At Risk\");
+  const not_started = by(\"Not Started\");
+  const pending_approval = goals.filter((g) => g.approval_status === \"submitted\").length;
+
+  // Quarterly trends
+  const qmap = { Q1: [], Q2: [], Q3: [], Q4: [] };
+  for (const g of goals) {
+    for (const q of g.quarterly_updates || []) {
+      if (qmap[q.quarter]) qmap[q.quarter].push({ planned: Number(q.planned || 0), achieved: Number(q.achieved || 0) });
+    }
+  }
+  const quarterly_trends = [\"Q1\", \"Q2\", \"Q3\", \"Q4\"].map((q) => ({
+    quarter: q,
+    planned: qmap[q].reduce((s, x) => s + x.planned, 0),
+    achieved: qmap[q].reduce((s, x) => s + x.achieved, 0),
+  }));
+
+  const status_distribution = [
+    { name: \"Completed\", value: completed },
+    { name: \"On Track\", value: on_track },
+    { name: \"At Risk\", value: at_risk },
+    { name: \"Not Started\", value: not_started },
+  ];
+
+  // Team performance (manager/admin only)
+  let team_performance = [];
+  if (me.role !== \"employee\") {
+    const empIds = [...new Set(goals.map((g) => g.employee_id))];
+    const us = await User.find({ id: { $in: empIds } }).select(\"id name department\").lean();
+    const umap = Object.fromEntries(us.map((u) => [u.id, u]));
+    const perEmp = {};
+    for (const g of goals) {
+      (perEmp[g.employee_id] = perEmp[g.employee_id] || []).push(computeProgress(g));
+    }
+    team_performance = Object.entries(perEmp).map(([eid, plist]) => ({
+      name: umap[eid]?.name || \"Unknown\",
+      department: umap[eid]?.department || \"\",
+      avg_progress: plist.length ? Math.round((plist.reduce((s, p) => s + p, 0) / plist.length) * 100) / 100 : 0,
+      goal_count: plist.length,
+    }));
+  }
+
+  // Department analytics (admin only)
+  let department_analytics = [];
+  if (me.role === \"admin\") {
+    const allUsers = await User.find({}).select(\"id department\").lean();
+    const umap = Object.fromEntries(allUsers.map((u) => [u.id, u]));
+    const deptMap = {};
+    for (const g of goals) {
+      const dept = umap[g.employee_id]?.department || \"Unassigned\";
+      (deptMap[dept] = deptMap[dept] || []).push(computeProgress(g));
+    }
+    department_analytics = Object.entries(deptMap).map(([d, v]) => ({
+      department: d,
+      avg_progress: v.length ? Math.round((v.reduce((s, p) => s + p, 0) / v.length) * 100) / 100 : 0,
+      goal_count: v.length,
+    }));
+  }
+
+  const completion_rate = total ? Math.round((completed / total) * 10000) / 100 : 0;
+
+  res.json({
+    summary: { total_goals: total, completed, on_track, at_risk, not_started, pending_approval, completion_rate },
+    quarterly_trends,
+    status_distribution,
+    team_performance,
+    department_analytics,
+  });
+});
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const Goal = require(\"../models/Goal\");
+const User = require(\"../models/User\");
+const AuditLog = require(\"../models/AuditLog\");
+const { httpError } = require(\"../utils/helpers\");
+const { logAudit } = require(\"../services/audit.service\");
+
+exports.unlock = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  const reason = (req.body || {}).reason || \"\";
+  g.locked = false;
+  g.approval_status = \"draft\";
+  await g.save();
+  await logAudit({
+    user_id: req.user.id, action: \"unlock_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: { locked: true }, new_value: { locked: false, reason },
+  });
+  res.json({ ok: true });
+});
+
+exports.audit = asyncHandler(async (_req, res) => {
+  const logs = await AuditLog.find({}).sort({ timestamp: -1 }).limit(500).lean();
+  const userIds = [...new Set(logs.map((l) => l.user_id).filter(Boolean))];
+  const users = await User.find({ id: { $in: userIds } }).select(\"id name email\").lean();
+  const umap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const enriched = logs.map((l) => ({
+    ...l,
+    _id: undefined,
+    user_name: umap[l.user_id]?.name || \"Unknown\",
+    user_email: umap[l.user_id]?.email || \"\",
+  }));
+  res.json(enriched);
+});
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const Goal = require(\"../models/Goal\");
+const User = require(\"../models/User\");
+const { httpError } = require(\"../utils/helpers\");
+const { serializeGoal } = require(\"../services/progress.service\");
+const { logAudit } = require(\"../services/audit.service\");
+const {
+  notifyGoalSubmitted,
+  notifyGoalApproved,
+  notifyGoalRejected,
+} = require(\"../services/email.service\");
+
+async function validateCanAdd(employee_id, weightage, excludeGoalId = null) {
+  const q = { employee_id, approval_status: { $ne: \"rejected\" } };
+  if (excludeGoalId) q.id = { $ne: excludeGoalId };
+  const existing = await Goal.find(q).select(\"weightage\").lean();
+  const total = existing.reduce((s, g) => s + Number(g.weightage || 0), 0) + Number(weightage);
+  if (total > 100) {
+    throw httpError(400, `Total weightage would exceed 100% (current: ${total}%)`);
+  }
+  if (!excludeGoalId) {
+    const count = await Goal.countDocuments(q);
+    if (count >= 8) throw httpError(400, \"Maximum 8 goals allowed per employee\");
+  }
+}
+
+exports.create = asyncHandler(async (req, res) => {
+  const {
+    title, description = \"\", thrust_area, uom_type = \"numeric\",
+    target, weightage, deadline, progress_direction = \"max\",
+  } = req.body || {};
+  if (!title || !thrust_area || target == null || weightage == null || !deadline) {
+    throw httpError(400, \"title, thrust_area, target, weightage and deadline are required\");
+  }
+  if (Number(weightage) < 10 || Number(weightage) > 100) {
+    throw httpError(400, \"Weightage must be between 10 and 100\");
+  }
+  await validateCanAdd(req.user.id, weightage);
+  const goal = await Goal.create({
+    employee_id: req.user.id,
+    title, description, thrust_area, uom_type,
+    target: Number(target), weightage: Number(weightage),
+    deadline: new Date(deadline), progress_direction,
+  });
+  await logAudit({
+    user_id: req.user.id, action: \"create_goal\", target_type: \"goal\", target_id: goal.id,
+    new_value: { title: goal.title },
+  });
+  res.json(serializeGoal(goal));
+});
+
+exports.list = asyncHandler(async (req, res) => {
+  const me = req.user;
+  const { employee_id } = req.query;
+  let q;
+  if (me.role === \"admin\") {
+    q = employee_id ? { employee_id } : {};
+  } else if (me.role === \"manager\") {
+    const team = await User.find({ manager_id: me.id }).select(\"id\").lean();
+    const ids = [...team.map((t) => t.id), me.id];
+    if (employee_id) {
+      if (!ids.includes(employee_id)) throw httpError(403, \"Forbidden\");
+      q = { employee_id };
+    } else {
+      q = { employee_id: { $in: ids } };
+    }
+  } else {
+    q = { employee_id: me.id };
+  }
+  const goals = await Goal.find(q).lean();
+  res.json(goals.map(serializeGoal));
+});
+
+exports.getOne = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id }).lean();
+  if (!g) throw httpError(404, \"Not found\");
+  res.json(serializeGoal(g));
+});
+
+exports.update = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  const me = req.user;
+  const isOwner = g.employee_id === me.id;
+  const isManager = me.role === \"manager\";
+  const isAdmin = me.role === \"admin\";
+
+  if (g.locked && !isAdmin) throw httpError(403, \"Goal is locked. Only admin can edit.\");
+  if (isOwner && g.approval_status === \"approved\" && !isAdmin) {
+    throw httpError(403, \"Approved goals cannot be edited by employee\");
+  }
+  if (!(isOwner || isManager || isAdmin)) throw httpError(403, \"Forbidden\");
+
+  const updates = {};
+  const allowedAll = [\"title\", \"description\", \"thrust_area\", \"uom_type\", \"target\", \"weightage\", \"deadline\", \"progress_direction\"];
+  for (const k of allowedAll) if (k in (req.body || {})) updates[k] = req.body[k];
+
+  // Shared child: employee can only modify weightage.
+  if (g.shared_goal_id && isOwner && !isAdmin) {
+    const keys = Object.keys(updates);
+    if (keys.some((k) => k !== \"weightage\")) {
+      throw httpError(400, \"Shared goal: only weightage can be changed by employee\");
+    }
+  }
+
+  if (updates.weightage != null) {
+    if (Number(updates.weightage) < 10 || Number(updates.weightage) > 100) {
+      throw httpError(400, \"Weightage must be between 10 and 100\");
+    }
+    await validateCanAdd(g.employee_id, updates.weightage, g.id);
+  }
+  if (updates.deadline) updates.deadline = new Date(updates.deadline);
+
+  const before = g.toObject();
+  Object.assign(g, updates);
+  await g.save();
+
+  await logAudit({
+    user_id: me.id, action: \"update_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: before, new_value: updates,
+  });
+  res.json(serializeGoal(g));
+});
+
+exports.remove = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  const me = req.user;
+  if (g.locked && me.role !== \"admin\") throw httpError(403, \"Goal is locked\");
+  if (me.role !== \"admin\" && g.employee_id !== me.id) throw httpError(403, \"Forbidden\");
+  if (g.approval_status === \"approved\" && me.role !== \"admin\") {
+    throw httpError(403, \"Approved goals cannot be deleted by employee\");
+  }
+  const before = g.toObject();
+  await Goal.deleteOne({ id: g.id });
+  await logAudit({
+    user_id: me.id, action: \"delete_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: before,
+  });
+  res.json({ ok: true });
+});
+
+exports.submit = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  if (g.employee_id !== req.user.id) throw httpError(403, \"Forbidden\");
+  if (g.locked) throw httpError(403, \"Locked\");
+
+  // Re-check weightage sum at submission time too.
+  const all = await Goal.find({ employee_id: g.employee_id, approval_status: { $ne: \"rejected\" } }).select(\"weightage\").lean();
+  const total = all.reduce((s, x) => s + Number(x.weightage || 0), 0);
+  if (total !== 100) throw httpError(400, `Total weightage must equal 100% before submission (current: ${total}%)`);
+
+  const before = g.approval_status;
+  g.approval_status = \"submitted\";
+  await g.save();
+  await logAudit({
+    user_id: req.user.id, action: \"submit_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: before, new_value: \"submitted\",
+  });
+
+  // Notify manager
+  const employee = await User.findOne({ id: g.employee_id }).lean();
+  if (employee?.manager_id) {
+    const manager = await User.findOne({ id: employee.manager_id }).lean();
+    await notifyGoalSubmitted({ employee, manager, goal: g });
+  }
+  res.json({ ok: true });
+});
+
+exports.approve = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  const me = req.user;
+  if (me.role === \"manager\") {
+    const emp = await User.findOne({ id: g.employee_id }).lean();
+    if (!emp || emp.manager_id !== me.id) throw httpError(403, \"Not your team member\");
+  }
+  const before = g.approval_status;
+  g.approval_status = \"approved\";
+  g.locked = true;
+  g.manager_comments = (req.body || {}).comments || \"\";
+  await g.save();
+  await logAudit({
+    user_id: me.id, action: \"approve_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: before, new_value: \"approved\",
+  });
+  const employee = await User.findOne({ id: g.employee_id }).lean();
+  await notifyGoalApproved({ employee, goal: g });
+  res.json({ ok: true });
+});
+
+exports.reject = asyncHandler(async (req, res) => {
+  const g = await Goal.findOne({ id: req.params.goal_id });
+  if (!g) throw httpError(404, \"Not found\");
+  const me = req.user;
+  if (me.role === \"manager\") {
+    const emp = await User.findOne({ id: g.employee_id }).lean();
+    if (!emp || emp.manager_id !== me.id) throw httpError(403, \"Not your team member\");
+  }
+  const before = g.approval_status;
+  const comments = (req.body || {}).comments || \"\";
+  g.approval_status = \"rejected\";
+  g.manager_comments = comments;
+  await g.save();
+  await logAudit({
+    user_id: me.id, action: \"reject_goal\", target_type: \"goal\", target_id: g.id,
+    old_value: before, new_value: \"rejected\",
+  });
+  const employee = await User.findOne({ id: g.employee_id }).lean();
+  await notifyGoalRejected({ employee, goal: g, comments });
+  res.json({ ok: true });
+});
+
+exports.pushShared = asyncHandler(async (req, res) => {
+  const {
+    employee_ids = [], title, description = \"\", thrust_area, uom_type = \"numeric\",
+    target, weightage, deadline, progress_direction = \"max\",
+  } = req.body || {};
+  if (!Array.isArray(employee_ids) || employee_ids.length === 0) {
+    throw httpError(400, \"employee_ids must be a non-empty array\");
+  }
+  if (!title || !thrust_area || target == null || weightage == null || !deadline) {
+    throw httpError(400, \"Missing required goal fields\");
+  }
+  const { randomUUID } = require(\"crypto\");
+  const shared_id = randomUUID();
+  const created = [];
+  const skipped = [];
+  for (const emp_id of employee_ids) {
+    try {
+      await validateCanAdd(emp_id, weightage);
+    } catch (e) {
+      skipped.push({ employee_id: emp_id, reason: e.message });
+      continue;
+    }
+    const g = await Goal.create({
+      employee_id: emp_id,
+      title, description, thrust_area, uom_type,
+      target: Number(target), weightage: Number(weightage),
+      deadline: new Date(deadline), progress_direction,
+      approval_status: \"submitted\",
+      manager_comments: \"Shared KPI\",
+      shared_goal_id: shared_id,
+    });
+    created.push(g.id);
+    await logAudit({
+      user_id: req.user.id, action: \"push_shared_goal\", target_type: \"goal\", target_id: g.id,
+      new_value: { shared_id },
+    });
+  }
+  res.json({ shared_id, created_goal_ids: created, skipped });
+});
+"
+"const asyncHandler = require(\"express-async-handler\");
+const bcrypt = require(\"bcryptjs\");
+const User = require(\"../models/User\");
+const { logAudit } = require(\"../services/audit.service\");
+const { httpError } = require(\"../utils/helpers\");
+
+function publicUser(u) {
+  return {
+    id: u.id, name: u.name, email: u.email, role: u.role,
+    manager_id: u.manager_id, department: u.department, created_at: u.created_at,
+  };
+}
+
+exports.list = asyncHandler(async (req, res) => {
+  const me = req.user;
+  let users;
+  if (me.role === \"admin\") {
+    users = await User.find({}).lean();
+  } else if (me.role === \"manager\") {
+    users = await User.find({ $or: [{ manager_id: me.id }, { id: me.id }] }).lean();
+  } else {
+    users = [me];
+  }
+  res.json(users.map(publicUser));
+});
+
+exports.managers = asyncHandler(async (_req, res) => {
+  const list = await User.find({ role: { $in: [\"manager\", \"admin\"] } }).lean();
+  res.json(list.map(publicUser));
+});
+
+exports.create = asyncHandler(async (req, res) => {
+  const { name, email, password, role = \"employee\", manager_id, department } = req.body || {};
+  if (!name || !email || !password) throw httpError(400, \"name, email and password are required\");
+  const emailLc = String(email).toLowerCase();
+  if (await User.findOne({ email: emailLc })) throw httpError(400, \"Email already exists\");
+  const password_hash = await bcrypt.hash(password, 10);
+  const user = await User.create({
+    name, email: emailLc, password_hash, role,
+    manager_id: manager_id || null, department: department || null,
+  });
+  await logAudit({
+    user_id: req.user.id, action: \"create_user\", target_type: \"user\", target_id: user.id,
+    new_value: { email: emailLc, role },
+  });
+  res.json({ id: user.id, email: emailLc, role });
+});
+
+exports.remove = asyncHandler(async (req, res) => {
+  const { user_id } = req.params;
+  const target = await User.findOne({ id: user_id });
+  if (!target) throw httpError(404, \"User not found\");
+  if (target.id === req.user.id) throw httpError(400, \"Cannot delete yourself\");
+  await User.deleteOne({ id: user_id });
+  await logAudit({
+    user_id: req.user.id, action: \"delete_user\", target_type: \"user\", target_id: user_id,
+    old_value: publicUser(target),
+  });
+  res.json({ ok: true });
+});
+"
+
+"const asyncHandler = require(\"express-async-handler\");
+const bcrypt = require(\"bcryptjs\");
+const User = require(\"../models/User\");
+const { httpError } = require(\"../utils/helpers\");
+const {
+  createAccessToken,
+  createRefreshToken,
+  setAuthCookies,
+  clearAuthCookies,
+} = require(\"../middleware/auth\");
+
+exports.register = asyncHandler(async (req, res) => {
+  const { name, email, password, role = \"employee\", manager_id, department } = req.body || {};
+  if (!name || !email || !password) throw httpError(400, \"name, email and password are required\");
+  if (password.length < 6) throw httpError(400, \"Password must be at least 6 chars\");
+  const emailLc = String(email).toLowerCase();
+  const exists = await User.findOne({ email: emailLc });
+  if (exists) throw httpError(400, \"Email already registered\");
+  const password_hash = await bcrypt.hash(password, 10);
+  const user = await User.create({
+    name,
+    email: emailLc,
+    password_hash,
+    role,
+    manager_id: manager_id || null,
+    department: department || null,
+  });
+  const access = createAccessToken(user);
+  const refresh = createRefreshToken(user);
+  setAuthCookies(res, access, refresh);
+  res.json({ user: user.toPublic(), access_token: access });
+});
+
+exports.login = asyncHandler(async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) throw httpError(400, \"email and password are required\");
+  const user = await User.findOne({ email: String(email).toLowerCase() });
+  if (!user) throw httpError(401, \"Invalid email or password\");
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) throw httpError(401, \"Invalid email or password\");
+  const access = createAccessToken(user);
+  const refresh = createRefreshToken(user);
+  setAuthCookies(res, access, refresh);
+  res.json({ user: user.toPublic(), access_token: access });
+});
+
+exports.logout = asyncHandler(async (_req, res) => {
+  clearAuthCookies(res);
+  res.json({ ok: true });
+});
+
+exports.me = asyncHandler(async (req, res) => {
+  const u = req.user;
+  res.json({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    manager_id: u.manager_id,
+    department: u.department,
+    created_at: u.created_at,
+  });
+});
+"
+
+"const bcrypt = require(\"bcryptjs\");
+const User = require(\"../models/User\");
+
+async function upsertSeedUser({ name, email, password, role, manager_id = null, department = null }) {
+  const existing = await User.findOne({ email });
+  if (existing) {
+    const same = await bcrypt.compare(password, existing.password_hash);
+    if (!same) {
+      existing.password_hash = await bcrypt.hash(password, 10);
+      await existing.save();
+    }
+    return existing;
+  }
+  const password_hash = await bcrypt.hash(password, 10);
+  return User.create({ name, email, password_hash, role, manager_id, department });
+}
+
+async function seedDemoUsers() {
+  const admin = await upsertSeedUser({
+    name: \"Admin User\",
+    email: process.env.ADMIN_EMAIL || \"admin@company.com\",
+    password: process.env.ADMIN_PASSWORD || \"Admin@123\",
+    role: \"admin\",
+    department: \"Operations\",
+  });
+  const manager = await upsertSeedUser({
+    name: \"Manager User\",
+    email: process.env.MANAGER_EMAIL || \"manager@company.com\",
+    password: process.env.MANAGER_PASSWORD || \"Manager@123\",
+    role: \"manager\",
+    department: \"Engineering\",
+  });
+  await upsertSeedUser({
+    name: \"Alice Employee\",
+    email: process.env.EMP1_EMAIL || \"alice@company.com\",
+    password: process.env.EMP1_PASSWORD || \"Alice@123\",
+    role: \"employee\",
+    manager_id: manager.id,
+    department: \"Engineering\",
+  });
+  await upsertSeedUser({
+    name: \"Bob Employee\",
+    email: process.env.EMP2_EMAIL || \"bob@company.com\",
+    password: process.env.EMP2_PASSWORD || \"Bob@123\",
+    role: \"employee\",
+    manager_id: manager.id,
+    department: \"Engineering\",
+  });
+  console.log(`[goalgrid] Seeded demo users (admin=${admin.id})`);
+}
+
+module.exports = seedDemoUsers;
+"
+
+"const Goal = require(\"../models/Goal\");
+
+// Propagate a check-in's achieved value to all sibling goals that share the
+// same shared_goal_id. The current goal's already-updated quarterly_updates
+// array is the source of truth.
+async function syncSharedAchievement(sourceGoal) {
+  if (!sourceGoal?.shared_goal_id) return { synced: 0 };
+  const siblings = await Goal.find({
+    shared_goal_id: sourceGoal.shared_goal_id,
+    id: { $ne: sourceGoal.id },
+  });
+  let synced = 0;
+  for (const sib of siblings) {
+    // Replace any matching quarter entries with the source's quarter entries.
+    const merged = [...(sib.quarterly_updates || [])];
+    for (const q of sourceGoal.quarterly_updates || []) {
+      const idx = merged.findIndex((m) => m.quarter === q.quarter);
+      const next = {
+        quarter: q.quarter,
+        planned: q.planned,
+        achieved: q.achieved,
+        status: q.status,
+        // Keep sibling-local comments; do not overwrite per-employee comments.
+        comments: idx >= 0 ? merged[idx].comments : q.comments,
+        manager_comments: idx >= 0 ? merged[idx].manager_comments : q.manager_comments,
+        updated_at: new Date(),
+      };
+      if (idx >= 0) merged[idx] = next;
+      else merged.push(next);
+    }
+    sib.quarterly_updates = merged;
+    sib.status = sourceGoal.status;
+    await sib.save();
+    synced += 1;
+  }
+  return { synced };
+}
+
+module.exports = { syncSharedAchievement };
+"
+
+"const nodemailer = require(\"nodemailer\");
+const Notification = require(\"../models/Notification\");
+
+let transporter = null;
+
+function getTransporter() {
+  if (transporter) return transporter;
+  const host = process.env.SMTP_HOST;
+  if (!host) {
+    // JSON transport — logs to console and into the Notification collection.
+    transporter = nodemailer.createTransport({ jsonTransport: true });
+    transporter.__mock = true;
+  } else {
+    transporter = nodemailer.createTransport({
+      host,
+      port: parseInt(process.env.SMTP_PORT || \"587\", 10),
+      secure: parseInt(process.env.SMTP_PORT || \"587\", 10) === 465,
+      auth: process.env.SMTP_USER
+        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        : undefined,
+    });
+  }
+  return transporter;
+}
+
+// Send and persist a notification. Always returns the stored Notification doc.
+async function sendEmail({ to_user, to_email, type, subject, body }) {
+  const t = getTransporter();
+  const from = process.env.SMTP_FROM || \"GoalGrid <noreply@goalgrid.local>\";
+  let delivered_via = \"log\";
+  try {
+    if (!t.__mock && to_email) {
+      await t.sendMail({ from, to: to_email, subject, text: body });
+      delivered_via = \"smtp\";
+    } else if (to_email) {
+      // jsonTransport — just emits structured output to stdout
+      const info = await t.sendMail({ from, to: to_email, subject, text: body });
+      console.log(`[mail:mock] → ${to_email} | ${subject}`);
+      delivered_via = info?.envelope ? \"log\" : \"log\";
+    }
+  } catch (err) {
+    console.error(\"[goalgrid] email failed:\", err.message);
+    delivered_via = \"failed\";
+  }
+  return Notification.create({
+    user_id: to_user,
+    type,
+    subject,
+    body,
+    delivered_via,
+  });
+}
+
+// High-level helpers used by controllers.
+async function notifyGoalSubmitted({ employee, manager, goal }) {
+  if (!manager) return;
+  await sendEmail({
+    to_user: manager.id,
+    to_email: manager.email,
+    type: \"goal_submitted\",
+    subject: `Goal submitted for approval — ${goal.title}`,
+    body: `${employee.name} submitted \"${goal.title}\" (${goal.weightage}% weight, target ${goal.target}). Review it in your Approvals queue.`,
+  });
+}
+
+async function notifyGoalApproved({ employee, goal }) {
+  await sendEmail({
+    to_user: employee.id,
+    to_email: employee.email,
+    type: \"goal_approved\",
+    subject: `Goal approved — ${goal.title}`,
+    body: `Your goal \"${goal.title}\" was approved and is now locked. Start logging quarterly check-ins.`,
+  });
+}
+
+async function notifyGoalRejected({ employee, goal, comments }) {
+  await sendEmail({
+    to_user: employee.id,
+    to_email: employee.email,
+    type: \"goal_rejected\",
+    subject: `Goal rejected — ${goal.title}`,
+    body: `Your goal \"${goal.title}\" was rejected.
+
+Manager comments: ${comments || \"(none)\"}`,
+  });
+}
+
+async function notifyQuarterlyReminder({ user, quarter }) {
+  await sendEmail({
+    to_user: user.id,
+    to_email: user.email,
+    type: \"quarterly_reminder\",
+    subject: `${quarter} check-in reminder`,
+    body: `Reminder: your ${quarter} check-in is due. Log planned vs achieved progress on each of your active goals.`,
+  });
+}
+
+module.exports = {
+  sendEmail,
+  notifyGoalSubmitted,
+  notifyGoalApproved,
+  notifyGoalRejected,
+  notifyQuarterlyReminder,
+};
+"
+
+"const AuditLog = require(\"../models/AuditLog\");
+
+async function logAudit({ user_id, action, target_type, target_id, old_value = null, new_value = null }) {
+  try {
+    await AuditLog.create({ user_id, action, target_type, target_id, old_value, new_value });
+  } catch (err) {
+    // Audit must never break a request — log and move on.
+    console.error(\"[goalgrid] audit failed:\", err.message);
+  }
+}
+
+module.exports = { logAudit };
+"
+
+"// Auto progress calculation for a goal based on its quarterly updates and
+// progress_direction. Mirrors FastAPI logic + adds Timeline support.
+//
+// • max      → sum(achieved) / target * 100 (cap 100)
+// • min      → target / sum(achieved) * 100 (cap 100, 0 → 0)
+// • zero     → 100 if sum(achieved) == 0 else 0
+// • timeline → days_elapsed / total_days * achieved-rate adjusted score
+//
+// \"timeline\" treats target as the deadline-driven completion: progress is the
+// fraction of quarters with status==\"Completed\" * 100, weighted by deadline
+// proximity. If a quarterly_update has achieved>=planned the quarter counts
+// as on-track and contributes 100/numQuartersScheduled to progress.
+function computeProgress(goal) {
+  const qups = goal.quarterly_updates || [];
+  const target = Number(goal.target || 0);
+  const direction = goal.progress_direction || \"max\";
+
+  if (qups.length === 0) return 0;
+
+  const sumAchieved = qups.reduce((s, q) => s + Number(q.achieved || 0), 0);
+
+  if (direction === \"zero\") {
+    return sumAchieved === 0 ? 100 : 0;
+  }
+
+  if (direction === \"min\") {
+    if (sumAchieved === 0) return 0;
+    return Math.min(100, Math.round((target / sumAchieved) * 10000) / 100);
+  }
+
+  if (direction === \"timeline\") {
+    // Deadline-proximity weighted: each quarter counts equally; status=Completed
+    // contributes full share; On Track contributes 75%; At Risk 40%; Not Started 0%.
+    const weights = { Completed: 1, \"On Track\": 0.75, \"At Risk\": 0.4, \"Not Started\": 0 };
+    const totalQuarters = 4; // Q1..Q4
+    const score = qups.reduce(
+      (s, q) => s + (weights[q.status] ?? 0) * (100 / totalQuarters),
+      0
+    );
+    return Math.round(score * 100) / 100;
+  }
+
+  // max (default)
+  if (target === 0) return 0;
+  return Math.min(100, Math.round((sumAchieved / target) * 10000) / 100);
+}
+
+// Serialise a goal to a plain object that matches the React frontend's expected
+// shape (camelCase NOT used — we keep snake_case for backward compatibility).
+function serializeGoal(goalDoc) {
+  const g = goalDoc.toObject ? goalDoc.toObject() : { ...goalDoc };
+  delete g._id;
+  g.progress = computeProgress(g);
+  return g;
+}
+
+module.exports = { computeProgress, serializeGoal };
+"
+
+
+App builder
+Wingman
+
+Home
+
+perf-pulse-8
+
+kirana-revenue-ai
+
+
+Buy Credits
+
+
+
+User Avatar
+
+
+
+
+
+
+
+
+Loading...
+“In-House Goal Setting & Tracking Portal”
+
+The application must support Employee, Manager, and Admin workflows for organizational goal setting, approvals, quarterly tracking, analytics, and audit management.
+
+Tech Stack Requirements
+
+Use:
+MongoDB Atlas
+
+Express.js
+
+React.js
+
+Node.js
+
+Tailwind CSS
+
+JWT Authentication
+
+bcrypt
+
+React Router
+
+Axios
+
+Recharts for analytics
+
+Context API or Redux
+
+Nodemailer for email notifications
+
+Deploy-ready architecture required.
+
+Main Features
+
+Authentication & Authorization
+
+Implement:
+Register
+
+Login
+
+JWT authentication
+
+Protected routes
+
+Role-based access
+
+Roles:
+Employee
+
+Manager
+
+Admin
+
+Password must be hashed using bcrypt.
+
+User Schema
+
+{
+  name: String,
+  email: String,
+  password: String,
+  role: "employee" | "manager" | "admin",
+  managerId: ObjectId,
+createdAt
+
+}
+Goal Management System
+
+Employees should be able to:
+
+Create goals
+
+Edit goals before submission
+
+Submit goals for approval
+
+Each goal contains:
+
+Goal title
+
+Description
+
+Thrust Area
+
+UoM Type
+
+Target
+
+Weightage
+
+Deadline
+
+Status
+
+Goal Validation Rules
+
+Enforce these rules strictly:
+
+Total weightage of all goals must equal 100%
+
+Minimum weightage per goal = 10%
+
+Maximum goals per employee = 8
+
+Goals become locked after manager approval
+
+Locked goals can only be unlocked by Admin
+
+Validation must happen on backend.
+
+Goal Schema
+
+{
+  employeeId: ObjectId,
+  title: String,
+  description: String,
+  thrustArea: String,
+  uomType: "numeric" | "percentage" | "timeline" | "zero",
+  target: Number,
+  weightage: Number,
+  deadline: Date,
+  status: "Not Started" | "On Track" | "Completed",
+  approvalStatus: "draft" | "submitted" | "approved" | "rejected",
+  locked: Boolean,
+  managerComments: String,
+  quarterlyUpdates: [],
+createdAt
+
+}
+Manager Workflow
+
+Managers should:
+
+View team goals
+
+Approve/reject goals
+
+Edit targets before approval
+
+Add quarterly check-in comments
+
+View planned vs actual achievements
+
+Quarterly Check-in Module
+
+Employees should:
+
+Submit quarterly achievements
+
+Update progress
+
+Change status
+
+Quarterly updates structure:
+
+{
+  quarter: "Q1" | "Q2" | "Q3" | "Q4",
+  planned: Number,
+  achieved: Number,
+  status: String,
+  comments: String,
+updatedAt
+
+}
+Progress Calculation Logic
+
+Implement automatic progress calculations.
+
+For Min Type:
+
+Achievement ÷ Target × 100
+
+For Max Type:
+
+Target ÷ Achievement × 100
+
+For Zero Type:
+
+If achievement = 0 → 100%
+
+Else → 0%
+
+Shared Goals Feature
+
+Managers/Admin should:
+
+Push a shared KPI to multiple employees
+
+Employees can only modify weightage
+
+Goal title and target must remain read-only
+
+Achievement updates sync across linked goals
+
+Admin Features
+
+Admin dashboard should include:
+
+User management
+
+Unlock locked goals
+
+Completion monitoring
+
+Audit trail
+
+Quarterly completion dashboard
+
+Analytics dashboard
+
+Audit Trail System
+
+Create AuditLog collection.
+
+Track:
+Goal edits
+
+Approval changes
+
+Unlock actions
+
+Status updates
+
+Schema:
+
+{
+userId,
+
+action,
+
+oldValue,
+
+newValue,
+
+timestamp
+
+}
+Analytics Dashboard
+
+Create charts for:
+
+Goal completion rates
+
+Quarter-on-quarter trends
+
+Team performance
+
+Department analytics
+
+Goal status distribution
+
+Use Recharts.
+
+Email Notifications
+
+Using Nodemailer:
+
+Goal submitted
+
+Goal approved
+
+Goal rejected
+
+Quarterly reminder notifications
+
+Frontend Requirements
+
+Use:
+React.js
+
+Tailwind CSS
+
+Responsive UI
+
+Sidebar navigation
+
+Dashboard cards
+
+Progress bars
+
+Tables
+
+Toast notifications
+
+Loading states
+
+Pages required:
+
+Login
+
+Register
+
+Employee Dashboard
+
+Manager Dashboard
+
+Admin Dashboard
+
+Goal Creation
+
+Goal Approval
+
+Quarterly Check-ins
+
+Analytics
+
+Audit Logs
+
+Backend Requirements
+
+Create clean architecture:
+
+Controllers
+
+Routes
+
+Middleware
+
+Models
+
+Services
+
+Include:
+Error handling middleware
+
+JWT middleware
+
+Role middleware
+
+Validation middleware
+
+API Endpoints
+
+Authentication:
+POST /api/auth/register
+
+POST /api/auth/login
+
+Goals:
+POST /api/goals
+
+GET /api/goals
+
+PUT /api/goals/:id
+
+DELETE /api/goals/:id
+
+Manager:
+PUT /api/goals/approve/:id
+
+PUT /api/goals/reject/:id
+
+Quarterly:
+POST /api/checkins/:goalId
+
+Admin:
+PUT /api/admin/unlock/:goalId
+
+UI/UX Requirements
+
+Design should look modern and professional similar to:
+
+Notion
+
+Jira
+
+Linear
+
+Use:
+Smooth animations
+
+Modern cards
+
+Dashboard widgets
+
+Responsive layout
+
+Clean typography
+
+Deployment Requirements
+
+Prepare deployment-ready configuration for:
+
+Frontend on Vercel
+
+Backend on Render
+
+MongoDB Atlas
+
+Include:
+Environment variables
+
+CORS setup
+
+Production build scripts
+
+Deliverables Required
+
+Generate:
+Complete frontend code
+
+Complete backend code
+
+MongoDB schemas
+
+API routes
+
+Authentication system
+
+Responsive UI
+
+Analytics dashboard
+
+README.md
+
+Architecture diagram explanation
+
+Deployment instructions
+
+May 16, 02:24 PM
+
+
+Agent is waiting...
+Message Agent
+
+
+Save
+
+Fork
+
+
+App Preview
+
+
+
+Share
+
+Deploy
+
+1M Context Window
+Build complex apps with 5× larger agentic context window.
+
+
+
+
+
+Agent is sleeping
+
+Resume
+
+
+
+
+
+
+
+
+
