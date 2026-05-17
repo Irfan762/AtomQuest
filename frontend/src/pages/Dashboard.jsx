@@ -17,6 +17,7 @@ const Dashboard = () => {
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [conflicts, setConflicts] = useState([]);
 
   useEffect(() => {
     fetchDashboard();
@@ -24,8 +25,14 @@ const Dashboard = () => {
 
   const fetchDashboard = async () => {
     try {
-      const { data } = await api.get("/analytics/dashboard");
-      setData(data);
+      const { data: dashData } = await api.get("/analytics/dashboard");
+      setData(dashData);
+      
+      // Fetch active conflicts for warning banner
+      if (user && ["admin", "manager"].includes(user.role)) {
+        const confRes = await api.get("/goals/conflicts");
+        setConflicts(confRes.data.filter(c => !c.resolved));
+      }
     } catch (err) {
       console.error("Failed to fetch dashboard data");
     } finally {
@@ -47,7 +54,7 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold tracking-tighter">Dashboard</h1>
           <p className="text-muted-foreground">Welcome back, {user?.name}. Here's what's happening.</p>
@@ -61,6 +68,31 @@ const Dashboard = () => {
           </Button>
         </div>
       </div>
+
+      {/* AI Goal Conflict Banner */}
+      {user && ["admin", "manager"].includes(user.role) && conflicts.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl border border-rose-500/20 bg-rose-500/5 text-rose-500 shadow-lg shadow-rose-500/5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-500 text-white rounded-xl">
+              <AlertTriangle className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="font-bold text-xs uppercase tracking-wider">AI Goal Conflict Alert</h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                AI scanner has identified <strong>{conflicts.length} active strategic conflict(s)</strong> across current organizational goals. Action is required.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="font-bold text-xs"
+            onClick={() => window.location.href = "/conflicts"}
+          >
+            Resolve Conflicts
+          </Button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

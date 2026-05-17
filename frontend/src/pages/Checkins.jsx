@@ -19,6 +19,7 @@ const Checkins = () => {
     planned: "",
     achieved: "",
     status: "On Track",
+    mood: "confident",
     comments: ""
   });
 
@@ -52,6 +53,7 @@ const Checkins = () => {
         planned: existing.planned,
         achieved: existing.achieved,
         status: existing.status,
+        mood: existing.mood || "confident",
         comments: existing.comments
       });
     } else {
@@ -60,6 +62,7 @@ const Checkins = () => {
         planned: "",
         achieved: "",
         status: "On Track",
+        mood: "confident",
         comments: ""
       });
     }
@@ -75,6 +78,7 @@ const Checkins = () => {
           planned: existing.planned,
           achieved: existing.achieved,
           status: existing.status,
+          mood: existing.mood || "confident",
           comments: existing.comments
         }));
       } else {
@@ -83,6 +87,7 @@ const Checkins = () => {
           planned: "",
           achieved: "",
           status: "On Track",
+          mood: "confident",
           comments: ""
         }));
       }
@@ -194,7 +199,7 @@ const Checkins = () => {
                               required
                             />
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-2 md:col-span-2">
                             <label className="text-sm font-medium">Status</label>
                             <select 
                               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -207,6 +212,34 @@ const Checkins = () => {
                               <option value="Completed">Completed</option>
                             </select>
                           </div>
+
+                          {/* Wellbeing Pulse Selector */}
+                          <div className="space-y-2 md:col-span-2">
+                            <label className="text-sm font-medium">Wellbeing Mood Indicator (Pulse)</label>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              {[
+                                { value: "confident", emoji: "😊", label: "Confident" },
+                                { value: "challenged", emoji: "😐", label: "Challenged" },
+                                { value: "struggling", emoji: "😰", label: "Struggling" },
+                                { value: "blocked", emoji: "🚨", label: "Blocked" }
+                              ].map(item => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  onClick={() => setFormData({ ...formData, mood: item.value })}
+                                  className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all hover:scale-105 cursor-pointer ${
+                                    formData.mood === item.value 
+                                      ? "bg-rose-500/10 border-rose-500 text-rose-500 font-bold scale-105" 
+                                      : "bg-secondary/40 hover:bg-secondary border-border/50 text-muted-foreground"
+                                  }`}
+                                >
+                                  <span className="text-2xl mb-1">{item.emoji}</span>
+                                  <span className="text-[10px] tracking-tight">{item.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
                           <div className="space-y-2 md:col-span-2">
                             <label className="text-sm font-medium">Comments</label>
                             <textarea 
@@ -240,6 +273,14 @@ const Checkins = () => {
                                <div className="flex items-center gap-2">
                                  <span className="font-bold">{u.quarter} Update</span>
                                  <Badge variant="outline" className="text-[10px]">{u.status}</Badge>
+                                 {u.mood && (
+                                   <Badge variant="secondary" className="text-[10px] flex items-center gap-1">
+                                     {u.mood === 'confident' && '😊 Confident'}
+                                     {u.mood === 'challenged' && '😐 Challenged'}
+                                     {u.mood === 'struggling' && '😰 Struggling'}
+                                     {u.mood === 'blocked' && '🚨 Blocked'}
+                                   </Badge>
+                                 )}
                                </div>
                                <p className="text-xs text-muted-foreground">{u.comments || "No comments."}</p>
                                {u.manager_comments && (

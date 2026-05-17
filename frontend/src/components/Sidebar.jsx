@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "./ui/button";
 
-const Sidebar = () => {
+const Sidebar = ({ onMobileClose }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -29,6 +29,11 @@ const Sidebar = () => {
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["employee", "manager", "admin"] },
     { to: "/goals", label: "My Goals", icon: Target, roles: ["employee", "manager", "admin"] },
+    { to: "/alignment-tree", label: "Goal Cascade Tree", icon: Share2, roles: ["employee", "manager", "admin"] },
+    { to: "/timeline", label: "Gantt Timeline", icon: CalendarCheck, roles: ["employee", "manager", "admin"] },
+    { to: "/conflicts", label: "AI Conflict Center", icon: ScrollText, roles: ["employee", "manager", "admin"] },
+    { to: "/scenarios", label: "Scenario Simulator", icon: Sparkle, roles: ["manager", "admin"] },
+    { to: "/wellbeing", label: "Wellbeing Pulse", icon: Sparkle, roles: ["manager", "admin"] },
     { to: "/approvals", label: "Approvals", icon: CheckCircle2, roles: ["manager", "admin"] },
     { to: "/team", label: "Team Performance", icon: UsersIcon, roles: ["manager", "admin"] },
     { to: "/executive", label: "Executive Insights", icon: BarChart3, roles: ["admin"] },
@@ -43,26 +48,27 @@ const Sidebar = () => {
   const filteredItems = navItems.filter(item => item.roles.includes(user?.role));
 
   return (
-    <aside className="w-64 h-full border-r bg-card flex flex-col">
+    <aside className="w-full lg:w-64 h-full border-r bg-card flex flex-col">
       <div className="p-6 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <Sparkle className="text-primary-foreground w-5 h-5" />
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Sparkle className="text-white w-5 h-5" />
           </div>
           <span className="font-heading font-bold text-xl tracking-tighter">GoalGrid</span>
         </div>
         <NotificationCenter />
       </div>
 
-      <nav className="flex-1 px-4 py-4 space-y-1">
+      <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
         {filteredItems.map((item) => (
           <Link
             key={item.to}
             to={item.to}
+            onClick={() => onMobileClose?.()}
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
               location.pathname === item.to 
-                ? "bg-primary text-primary-foreground" 
+                ? "bg-blue-600 text-white shadow-md shadow-blue-500/10" 
                 : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             )}
           >

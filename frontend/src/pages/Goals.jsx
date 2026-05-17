@@ -18,6 +18,8 @@ const Goals = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState("");
+  const [conflicts, setConflicts] = useState([]);
+  const [parentGoals, setParentGoals] = useState([]);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -26,7 +28,9 @@ const Goals = () => {
     target: "",
     weightage: "",
     deadline: "",
-    progress_direction: "max"
+    progress_direction: "max",
+    parentGoalId: "",
+    startDate: ""
   });
 
   useEffect(() => {
@@ -37,6 +41,18 @@ const Goals = () => {
     try {
       const { data } = await api.get("/goals");
       setGoals(data);
+      
+      // Load approved parent goals
+      const approved = data.filter(g => g.approval_status === "approved");
+      setParentGoals(approved);
+
+      // Load active conflicts
+      try {
+        const confRes = await api.get("/goals/conflicts");
+        setConflicts(confRes.data.filter(c => !c.resolved));
+      } catch (err) {
+        // Soft fallback
+      }
     } catch (err) {
       toast.error("Failed to fetch goals");
     } finally {
@@ -47,13 +63,18 @@ const Goals = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/goals", formData);
+      const payload = { ...formData };
+      if (!payload.parentGoalId) delete payload.parentGoalId;
+      if (!payload.startDate) delete payload.startDate;
+
+      await api.post("/goals", payload);
       toast.success("Goal created successfully");
       setShowModal(false);
       fetchGoals();
       setFormData({
         title: "", description: "", thrust_area: "", uom_type: "numeric",
-        target: "", weightage: "", deadline: "", progress_direction: "max"
+        target: "", weightage: "", deadline: "", progress_direction: "max",
+        parentGoalId: "", startDate: ""
       });
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to create goal");
@@ -155,92 +176,102 @@ const Goals = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredGoals.map((goal) => (
-            <Card key={goal.id} className="glass group hover:border-primary/50 transition-all duration-300">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider mb-2">
-                      {goal.thrust_area}
-                    </Badge>
-                    <CardTitle className="text-lg group-hover:text-primary transition-colors line-clamp-1">{goal.title}</CardTitle>
-                  </div>
-                  {goal.locked ? (
-                    <Lock className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {useAuth().user?.role === "admin" && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-500" onClick={() => unlockGoal(goal.id)}>
-                          <Lock className="w-3 h-3" />
+          {filteredGoals.map((goal) => {
+            const isConflicted = conflicts.some(c => c.goal1_id === goal.id || c.goal2_id === goal.id);
+            return (
+              <Card key={goal.id} className="glass group hover:border-primary/50 transition-all duration-300">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">
+                          {goal.thrust_area}
+                        </Badge>
+                        {isConflicted && (
+                          <Badge variant="destructive" className="text-[10px] uppercase font-bold tracking-wider animate-pulse flex items-center gap-1" title="AI detected a strategy conflict">
+                            ⚠️ Conflict Flag
+                          </Badge>
+                        )}
+                      </div>
+                      <CardTitle className="text-lg group-hover:text-primary transition-colors line-clamp-1">{goal.title}</CardTitle>
+                    </div>
+                    {goal.locked ? (
+                      <Lock className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {useAuth().user?.role === "admin" && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-500" onClick={() => unlockGoal(goal.id)}>
+                            <Lock className="w-3 h-3" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Edit feature coming soon")}>
+                          <Pencil className="w-3 h-3" />
                         </Button>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Edit feature coming soon")}>
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteGoal(goal.id)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteGoal(goal.id)}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                     <div className="flex justify-between text-xs mb-1">
+                       <span className="text-muted-foreground font-medium">Progress</span>
+                       <span className="font-bold">{goal.progress}%</span>
+                     </div>
+                     <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                       <div 
+                        className="h-full bg-primary transition-all duration-500" 
+                        style={{ width: `${goal.progress}%` }} 
+                       />
+                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 py-3 border-y border-border/50">
+                    <div>
+                      <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Weightage</div>
+                      <div className="text-sm font-bold font-mono">{goal.weightage}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Target</div>
+                      <div className="text-sm font-bold font-mono">{goal.target}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="w-3.5 h-3.5" />
+                      {format(new Date(goal.deadline), "MMM dd, yyyy")}
+                    </div>
+                    <Badge 
+                      variant={
+                        goal.approval_status === "approved" ? "default" : 
+                        goal.approval_status === "submitted" ? "secondary" : 
+                        goal.approval_status === "rejected" ? "destructive" : "outline"
+                      }
+                      className="text-[10px] capitalize"
+                    >
+                      {goal.approval_status}
+                    </Badge>
+                  </div>
+
+                  {goal.approval_status === "draft" && (
+                     <Button className="w-full mt-4 gap-2" size="sm" onClick={() => submitForApproval(goal.id)}>
+                       <Send className="w-3.5 h-3.5" /> Submit for Approval
+                     </Button>
+                  )}
+                  
+                  {goal.approval_status === "approved" && (
+                    <div className="flex items-center gap-2 mt-4 text-[10px] text-emerald-500 font-medium bg-emerald-500/10 p-2 rounded-lg">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Goal approved and locked for tracking
                     </div>
                   )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                   <div className="flex justify-between text-xs mb-1">
-                     <span className="text-muted-foreground font-medium">Progress</span>
-                     <span className="font-bold">{goal.progress}%</span>
-                   </div>
-                   <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                     <div 
-                      className="h-full bg-primary transition-all duration-500" 
-                      style={{ width: `${goal.progress}%` }} 
-                     />
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 py-3 border-y border-border/50">
-                  <div>
-                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Weightage</div>
-                    <div className="text-sm font-bold font-mono">{goal.weightage}%</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Target</div>
-                    <div className="text-sm font-bold font-mono">{goal.target}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Clock className="w-3.5 h-3.5" />
-                    {format(new Date(goal.deadline), "MMM dd, yyyy")}
-                  </div>
-                  <Badge 
-                    variant={
-                      goal.approval_status === "approved" ? "default" : 
-                      goal.approval_status === "submitted" ? "secondary" : 
-                      goal.approval_status === "rejected" ? "destructive" : "outline"
-                    }
-                    className="text-[10px] capitalize"
-                  >
-                    {goal.approval_status}
-                  </Badge>
-                </div>
-
-                {goal.approval_status === "draft" && (
-                   <Button className="w-full mt-4 gap-2" size="sm" onClick={() => submitForApproval(goal.id)}>
-                     <Send className="w-3.5 h-3.5" /> Submit for Approval
-                   </Button>
-                )}
-                
-                {goal.approval_status === "approved" && (
-                  <div className="flex items-center gap-2 mt-4 text-[10px] text-emerald-500 font-medium bg-emerald-500/10 p-2 rounded-lg">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    Goal approved and locked for tracking
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -328,16 +359,41 @@ const Goals = () => {
                        />
                      </div>
                      <div className="space-y-2">
-                       <label className="text-sm font-medium">Progress Direction</label>
-                       <select 
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          value={formData.progress_direction}
-                          onChange={(e) => setFormData({...formData, progress_direction: e.target.value})}
+                        <label className="text-sm font-medium">Progress Direction</label>
+                        <select 
+                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                           value={formData.progress_direction}
+                           onChange={(e) => setFormData({...formData, progress_direction: e.target.value})}
                         >
-                          <option value="max">Maximize (Target is floor)</option>
-                          <option value="min">Minimize (Target is ceiling)</option>
+                           <option value="max">Maximize (Target is floor)</option>
+                           <option value="min">Minimize (Target is ceiling)</option>
                         </select>
-                     </div>
+                      </div>
+
+                      {/* Parent Goal Cascading linkage */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Align to Strategic Parent Goal</label>
+                        <select 
+                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                           value={formData.parentGoalId}
+                           onChange={(e) => setFormData({...formData, parentGoalId: e.target.value})}
+                        >
+                           <option value="">None (Root Strategy Goal)</option>
+                           {parentGoals.map(p => (
+                             <option key={p.id} value={p.id}>{p.title} ({p.thrust_area})</option>
+                           ))}
+                        </select>
+                      </div>
+
+                      {/* Start Date */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Start Date</label>
+                        <Input 
+                         type="date" 
+                         value={formData.startDate}
+                         onChange={(e) => setFormData({...formData, startDate: e.target.value})}
+                        />
+                      </div>
                    </div>
                    <div className="flex gap-3 pt-4 justify-end">
                       <Button type="button" variant="ghost" onClick={() => setShowModal(false)}>Cancel</Button>

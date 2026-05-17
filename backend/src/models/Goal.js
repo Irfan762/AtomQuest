@@ -20,6 +20,11 @@ const quarterlyUpdateSchema = new mongoose.Schema({
     enum: ["Not Started", "On Track", "At Risk", "Completed"],
     default: "Not Started"
   },
+  mood: {
+    type: String,
+    enum: ["confident", "challenged", "struggling", "blocked", null],
+    default: null
+  },
   comments: {
     type: String,
     default: ""
@@ -43,6 +48,11 @@ const goalSchema = new mongoose.Schema({
   employee_id: {
     type: String,
     required: true,
+    index: true
+  },
+  parentGoalId: {
+    type: String,
+    default: null,
     index: true
   },
   title: {
@@ -69,6 +79,10 @@ const goalSchema = new mongoose.Schema({
   weightage: {
     type: Number,
     required: true
+  },
+  startDate: {
+    type: Date,
+    default: Date.now
   },
   deadline: {
     type: Date,

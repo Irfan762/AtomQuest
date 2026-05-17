@@ -14,12 +14,21 @@ const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  const getDemoPassword = (emailStr) => {
+    const emailLc = String(emailStr).toLowerCase();
+    if (emailLc === "admin@company.com") return "Admin@123";
+    if (emailLc === "manager@company.com") return "Manager@123";
+    if (emailLc === "alice@company.com") return "Alice@123";
+    if (emailLc === "bob@company.com") return "Bob@123";
+    return "Password@123";
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const demoEmail = params.get("demo_email");
     if (demoEmail) {
       setEmail(demoEmail);
-      setPassword("Password@123");
+      setPassword(getDemoPassword(demoEmail));
       const timer = setTimeout(() => {
         const form = document.querySelector("form");
         if (form) form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
@@ -130,21 +139,21 @@ const Login = () => {
                 <div className="grid grid-cols-1 gap-y-1.5">
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("admin@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("admin@company.com", "Admin@123")}
                   >
                     <span>admin@company.com</span>
                     <span className="text-right opacity-50">Admin Role</span>
                   </div>
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("manager@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("manager@company.com", "Manager@123")}
                   >
                     <span>manager@company.com</span>
                     <span className="text-right opacity-50">Manager Role</span>
                   </div>
                   <div 
                     className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-                    onClick={() => handleDemoClick("alice@company.com", "Password@123")}
+                    onClick={() => handleDemoClick("alice@company.com", "Alice@123")}
                   >
                     <span>alice@company.com</span>
                     <span className="text-right opacity-50">Employee Role</span>

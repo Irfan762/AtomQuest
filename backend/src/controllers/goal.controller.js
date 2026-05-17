@@ -28,6 +28,7 @@ exports.create = asyncHandler(async (req, res) => {
   const {
     title, description = "", thrust_area, uom_type = "numeric",
     target, weightage, deadline, progress_direction = "max",
+    parentGoalId = null, startDate,
   } = req.body || {};
   if (!title || !thrust_area || target == null || weightage == null || !deadline) {
     throw httpError(400, "title, thrust_area, target, weightage and deadline are required");
@@ -41,6 +42,8 @@ exports.create = asyncHandler(async (req, res) => {
     title, description, thrust_area, uom_type,
     target: Number(target), weightage: Number(weightage),
     deadline: new Date(deadline), progress_direction,
+    parentGoalId,
+    startDate: startDate ? new Date(startDate) : new Date(),
   });
   await logAudit({
     user_id: req.user.id, action: "create_goal", target_type: "goal", target_id: goal.id,
@@ -92,7 +95,7 @@ exports.update = asyncHandler(async (req, res) => {
   if (!(isOwner || isManager || isAdmin)) throw httpError(403, "Forbidden");
 
   const updates = {};
-  const allowedAll = ["title", "description", "thrust_area", "uom_type", "target", "weightage", "deadline", "progress_direction"];
+  const allowedAll = ["title", "description", "thrust_area", "uom_type", "target", "weightage", "deadline", "progress_direction", "parentGoalId", "startDate"];
   for (const k of allowedAll) if (k in (req.body || {})) updates[k] = req.body[k];
 
   if (g.shared_goal_id && isOwner && !isAdmin) {
@@ -109,6 +112,7 @@ exports.update = asyncHandler(async (req, res) => {
     await validateCanAdd(g.employee_id, updates.weightage, g.id);
   }
   if (updates.deadline) updates.deadline = new Date(updates.deadline);
+  if (updates.startDate) updates.startDate = new Date(updates.startDate);
 
   const before = g.toObject();
   Object.assign(g, updates);
@@ -184,6 +188,15 @@ exports.approve = asyncHandler(async (req, res) => {
   });
   const employee = await User.findOne({ id: g.employee_id }).lean();
   await notifyGoalApproved({ employee, goal: g });
+
+  // Trigger AI Goal Conflict Detector automatically!
+  try {
+    const { runConflictDetectorInternal } = require("../services/conflict.service");
+    await runConflictDetectorInternal();
+  } catch (err) {
+    console.error("[goalgrid] Auto conflict detection failed:", err.message);
+  }
+
   res.json({ ok: true });
 });
 
@@ -247,4 +260,113 @@ exports.pushShared = asyncHandler(async (req, res) => {
     });
   }
   res.json({ shared_id, created_goal_ids: created, skipped });
+});
+
+// ==========================================
+// 5 UNIQUE ENTERPRISE FEATURES ACTIONS
+// ==========================================
+
+const Conflict = require("../models/Conflict");
+const Scenario = require("../models/Scenario");
+
+exports.alignmentTree = asyncHandler(async (req, res) => {
+  const goals = await Goal.find({}).lean();
+  const users = await User.find({ is_deleted: false }).select("id name role department").lean();
+  const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+  // Calculate alignment score
+  const employeeGoals = goals.filter(g => userMap[g.employee_id]?.role === "employee");
+  const alignedEmployeeGoals = employeeGoals.filter(g => g.parentGoalId);
+  const alignmentScore = employeeGoals.length 
+    ? Math.round((alignedEmployeeGoals.length / employeeGoals.length) * 100) 
+    : 100;
+
+  res.json({
+    goals: goals.map(serializeGoal),
+    users: userMap,
+    alignmentScore
+  });
+});
+
+exports.timeline = asyncHandler(async (req, res) => {
+  const { department, employee_id, status, quarter } = req.query;
+  
+  let userQuery = { is_deleted: false };
+  if (department) {
+    userQuery.department = department;
+  }
+  const users = await User.find(userQuery).select("id name role department").lean();
+  const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const userIds = users.map(u => u.id);
+
+  let goalQuery = { employee_id: { $in: userIds } };
+  if (employee_id) {
+    goalQuery.employee_id = employee_id;
+  }
+  if (status) {
+    goalQuery.status = status;
+  }
+  
+  let goals = await Goal.find(goalQuery).lean();
+
+  if (quarter) {
+    // Filter goals that have checkins/activity in that specific quarter
+    goals = goals.filter(g => {
+      if (!g.quarterly_updates || g.quarterly_updates.length === 0) return quarter === "Q1";
+      return g.quarterly_updates.some(q => q.quarter === quarter);
+    });
+  }
+
+  res.json(goals.map(serializeGoal));
+});
+
+exports.detectConflicts = asyncHandler(async (req, res) => {
+  const { runConflictDetectorInternal } = require("../services/conflict.service");
+  const conflicts = await runConflictDetectorInternal();
+  res.json({ ok: true, count: conflicts.length, conflicts });
+});
+
+exports.listConflicts = asyncHandler(async (req, res) => {
+  const conflicts = await Conflict.find({}).sort({ created_at: -1 }).lean();
+  res.json(conflicts);
+});
+
+exports.resolveConflict = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const conflict = await Conflict.findOne({ id });
+  if (!conflict) throw httpError(404, "Conflict not found");
+
+  conflict.resolved = true;
+  conflict.resolved_by = req.user.name || req.user.role;
+  await conflict.save();
+
+  res.json({ ok: true, conflict });
+});
+
+exports.listScenarios = asyncHandler(async (req, res) => {
+  const scenarios = await Scenario.find({ manager_id: req.user.id }).sort({ created_at: -1 }).lean();
+  res.json(scenarios);
+});
+
+exports.saveScenario = asyncHandler(async (req, res) => {
+  const { name, description = "", sliders, department = "", dept_impact = 0, org_impact = 0 } = req.body || {};
+  if (!name || !sliders) throw httpError(400, "name and sliders are required");
+
+  const scenario = await Scenario.create({
+    name,
+    description,
+    manager_id: req.user.id,
+    sliders,
+    department,
+    dept_impact,
+    org_impact
+  });
+
+  res.json({ ok: true, scenario });
+});
+
+exports.deleteScenario = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  await Scenario.deleteOne({ id, manager_id: req.user.id });
+  res.json({ ok: true });
 });

@@ -51,19 +51,55 @@ GoalGrid is a comprehensive MERN stack platform designed for corporate performan
 3. Create `.env` based on `.env.example`.
 4. `npm run dev`
 
-## 🧪 Test Credentials
+## 🧪 Active Enterprise Test Credentials
 
-| Role | Email | Password |
-| :--- | :--- | :--- |
-| **Admin** | `admin@company.com` | `Admin@123` |
-| **Manager** | `manager@company.com` | `Manager@123` |
-| **Employee** | `alice@company.com` | `Alice@123` |
+The database has been seeded with a production-grade enterprise organizational hierarchy. Use the floating **Hackathon Demo Panel** in the bottom-left corner to switch perspectives with one click, or log in manually using:
 
-## 📐 Architecture
-
-- **Backend**: Controller-Service-Model architecture with centralized error handling and audit middleware.
-- **Frontend**: Component-based architecture with Context API for state management and Axios interceptors for auth.
+| Role | Email | Password | Department |
+| :--- | :--- | :--- | :--- |
+| **Admin CEO** | `admin@company.com` | `Password@123` | Leadership |
+| **Manager** | `manager@company.com` | `Password@123` | Sales |
+| **Employee** | `alice@company.com` | `Password@123` | Sales |
 
 ---
 
-*Submitted for [Hackathon Name] 2026.*
+## 🌟 5 Advanced Enterprise Differentiators (Hackathon Winners)
+
+GoalGrid has been upgraded with five unique, high-fidelity strategic features designed to satisfy enterprise governance needs:
+
+### 1. Goal Alignment Cascade Tree (`/alignment-tree`)
+- **What it is**: An interactive, animated parent-child tree mapping the flow of strategic objectives from the **CEO** -> **Managers** -> **Employees**.
+- **Special Integrations**:
+  - Automatically alerts managers of **Orphaned Goals** (employee objectives lacking a parent/department linkage).
+  - Computes a global **Strategy Alignment Score** representing corporate OKR compliance.
+
+### 2. Employee Wellbeing Pulse Tracker (`/wellbeing`)
+- **What it is**: A mood tracker integrated directly into the quarterly check-in submission. Employees log their emotional state: Confident (😊), Challenged (😐), Struggling (😰), or Blocked (🚨).
+- **Special Integrations**:
+  - Automatically dispatches **instant email and notification alerts** to the employee's manager upon logging distressed states.
+  - Renders a department-by-department **Team Wellbeing Heatmap** and global stress indicators for leadership analysis.
+
+### 3. AI Goal Conflict Detector (`/conflicts`)
+- **What it is**: A semantic scanner powered by the **Google Gemini API** (with high-fidelity rule-based keyword falls) that detects cost/headcount/resource conflicts across departments (e.g., hiring backend staff vs tech budget reductions).
+- **Special Integrations**:
+  - Triggers automatically upon goal approvals.
+  - Includes an **Admin Conflict Resolution Center** for marking conflicts resolved.
+  - Displays real-time warning indicators on individual goal cards and the main executive dashboard.
+
+### 4. Goal Timeline Gantt View (`/timeline`)
+- **What it is**: A horizontal, monthly bar chart plotting goal schedules and operational durations from `startDate` to `deadline`.
+- **Special Integrations**:
+  - Color-coded bar representations corresponding to goal progress statuses.
+  - **Workload Alert system** that automatically flags monthly clusters if an employee or department has too many active deadlines due in the same calendar span.
+
+### 5. What-If Scenario Simulator (`/scenarios`)
+- **What it is**: A sandbox slider interface enabling managers to model prospective performance shifts.
+- **Special Integrations**:
+  - Live recalculation of overall organization progress scores and department averages.
+  - Real-time Recharts bar visualizations reflecting simulated outcomes.
+  - **Weightage Rebalancing guards** that trigger alerts if an employee's total goal weights deviate from 100%.
+  - Snapshots repository allowing managers to save, load, and delete simulation configuration planners in MongoDB.
+
+---
+
+*Submitted for Corporate OKR Performance Hackathon 2026.*
