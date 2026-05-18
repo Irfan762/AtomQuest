@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { Sparkle } from "lucide-react";
+import { Sparkle, Shield, Users, User, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 const Login = () => {
@@ -51,10 +51,19 @@ const Login = () => {
     }
   };
 
-  const handleDemoClick = (demoEmail, demoPassword) => {
+  const handleDemoClick = async (demoEmail, demoPassword) => {
     setEmail(demoEmail);
     setPassword(demoPassword);
-    toast.info(`Auto-filled ${demoEmail} credentials`);
+    setLoading(true);
+    try {
+      await login(demoEmail, demoPassword);
+      toast.success(`Welcome back! Logged in as ${demoEmail}`);
+      navigate("/");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Login failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -134,30 +143,78 @@ const Login = () => {
                 </Link>
               </div>
 
-              <div className="w-full bg-secondary/30 p-4 rounded-xl border border-border/50 text-[10px] font-mono text-muted-foreground space-y-2">
-                <div className="font-bold uppercase tracking-widest text-muted-foreground/70 mb-1">Demo Accounts</div>
-                <div className="grid grid-cols-1 gap-y-1.5">
-                  <div 
-                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+              <div className="w-full space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quick Access Demo Accounts</span>
+                  <span className="text-[9px] font-semibold text-blue-500/80 bg-blue-500/10 px-2 py-0.5 rounded-full">One-click login</span>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-2.5 w-full">
+                  {/* Admin Account */}
+                  <button 
+                    type="button"
+                    disabled={loading}
                     onClick={() => handleDemoClick("admin@company.com", "Admin@123")}
+                    className="group relative flex items-center justify-between w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-blue-50/40 hover:border-blue-200 hover:shadow-md hover:shadow-blue-500/5 transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-left"
                   >
-                    <span>admin@company.com</span>
-                    <span className="text-right opacity-50">Admin Role</span>
-                  </div>
-                  <div 
-                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100/80 text-blue-600 rounded-lg group-hover:bg-blue-200/80 transition-colors">
+                        <Shield className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs text-slate-800 flex items-center gap-1.5">
+                          Admin Console
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-full">Admin</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">admin@company.com</div>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+                  </button>
+
+                  {/* Manager Account */}
+                  <button 
+                    type="button"
+                    disabled={loading}
                     onClick={() => handleDemoClick("manager@company.com", "Manager@123")}
+                    className="group relative flex items-center justify-between w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-emerald-50/40 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-500/5 transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-left"
                   >
-                    <span>manager@company.com</span>
-                    <span className="text-right opacity-50">Manager Role</span>
-                  </div>
-                  <div 
-                    className="flex justify-between hover:text-blue-600 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-emerald-100/80 text-emerald-600 rounded-lg group-hover:bg-emerald-200/80 transition-colors">
+                        <Users className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs text-slate-800 flex items-center gap-1.5">
+                          Manager Dashboard
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">Manager</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">manager@company.com</div>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
+                  </button>
+
+                  {/* Employee Account */}
+                  <button 
+                    type="button"
+                    disabled={loading}
                     onClick={() => handleDemoClick("alice@company.com", "Alice@123")}
+                    className="group relative flex items-center justify-between w-full p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-violet-50/40 hover:border-violet-200 hover:shadow-md hover:shadow-violet-500/5 transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-left"
                   >
-                    <span>alice@company.com</span>
-                    <span className="text-right opacity-50">Employee Role</span>
-                  </div>
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-violet-100/80 text-violet-600 rounded-lg group-hover:bg-violet-200/80 transition-colors">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs text-slate-800 flex items-center gap-1.5">
+                          Employee Portal
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 bg-violet-100 text-violet-800 rounded-full">Employee</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">alice@company.com</div>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-violet-600 group-hover:translate-x-1 transition-all" />
+                  </button>
                 </div>
               </div>
             </CardFooter>

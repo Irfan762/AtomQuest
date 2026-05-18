@@ -20,6 +20,8 @@ Copy-paste the structured sections below directly into your Hackathon Submission
     *   Rigorous mathematical UoM math engines automating Q1–Q4 planned vs. actual indexes.
     *   Dual-LLM AI Suite supporting **Google Gemini API** & **Anthropic Claude API** for real-time audits.
     *   Floating **Hackathon Demo Control Panel** enabling judges to run role switches in 1-click.
+*   **Visual Submission Asset (Included)**:
+    *   Refer to `dashboard_ui_mockup.png` in the repository root for a premium, high-resolution mockup of the GoalGrid corporate dashboard interface.
 
 ---
 
