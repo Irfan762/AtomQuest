@@ -1,8 +1,7 @@
 const { computeProgress } = require("./progress.service");
 
 /**
- * Intelligent Mock AI Service
- * Simulates high-level NLP logic for enterprise performance management.
+ * Enterprise AI Service with Google Gen AI Integration & High-Fidelity Mock Fallback
  */
 
 const SMART_PATTERNS = [
@@ -17,6 +16,37 @@ const SMART_PATTERNS = [
 ];
 
 async function analyzeGoal(title, description) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    try {
+      const { GoogleGenAI } = require("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Perform a detailed SMART goal audit for the following goal:
+        Title: "${title}"
+        Description: "${description || ''}"
+        
+        Evaluate the goal based on Specific, Measurable, Achievable, Relevant, and Time-bound criteria.
+        Return ONLY a valid JSON object matching the following signature (no markdown code blocks, no backticks, no comments):
+        {
+          "score": 85,
+          "clarity": "High" | "Medium" | "Low",
+          "suggestions": ["suggestion 1", "suggestion 2"],
+          "improvedTitle": "enhanced title following SMART format",
+          "improvedDescription": "enhanced description"
+        }`,
+      });
+
+      const text = response.text().trim();
+      const jsonText = text.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+      return JSON.parse(jsonText);
+    } catch (err) {
+      console.warn("[goalgrid] Gemini SMART analysis failed, using high-fidelity mockup:", err.message);
+    }
+  }
+
+  // ─── High-Fidelity Mock Fallback ──────────────────────────────────────────
   const text = (title + " " + (description || "")).toLowerCase();
   let score = 30; // base score
   
@@ -52,12 +82,41 @@ async function analyzeGoal(title, description) {
 }
 
 async function generatePerformanceReview(user, goals) {
-  if (!goals || goals.length === 0) return "No performance data available for review.";
+  if (!goals || goals.length === 0) return { summary: "No performance data available for review.", strengths: [], weaknesses: [], score: 0 };
 
   const totalProgress = goals.reduce((s, g) => s + computeProgress(g), 0) / goals.length;
   const completed = goals.filter(g => g.status === "Completed").length;
   const atRisk = goals.filter(g => g.status === "At Risk").length;
 
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    try {
+      const { GoogleGenAI } = require("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Generate a constructive performance review for employee ${user.name} (Role: ${user.role}, Dept: ${user.department}) based on the following quarterly goals achievements:
+        ${JSON.stringify(goals.map(g => ({ title: g.title, progress: g.progress, status: g.status })), null, 2)}
+        
+        Evaluate strengths, weaknesses (or improvement areas), overall completion rate, and outline a supportive feedback summary.
+        Return ONLY a valid JSON object matching the following signature (no markdown code blocks, no backticks, no comments):
+        {
+          "summary": "overall performance evaluation summary",
+          "strengths": ["strength 1", "strength 2"],
+          "weaknesses": ["weakness 1", "weakness 2"],
+          "score": 85
+        }`,
+      });
+
+      const text = response.text().trim();
+      const jsonText = text.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+      return JSON.parse(jsonText);
+    } catch (err) {
+      console.warn("[goalgrid] Gemini Performance Review failed, using high-fidelity mockup:", err.message);
+    }
+  }
+
+  // ─── High-Fidelity Mock Fallback ──────────────────────────────────────────
   let summary = "";
   if (totalProgress > 80) {
     summary = `${user.name} is a top performer who consistently exceeds expectations. With ${completed} goals completed, they demonstrate exceptional execution capability.`;
@@ -84,6 +143,27 @@ async function generatePerformanceReview(user, goals) {
 }
 
 async function getGoalRecommendations(department, thrustArea) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    try {
+      const { GoogleGenAI } = require("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `List 3 professional, measurable goal recommendations (KPIs) for an employee working in the "${department}" department, with focus on the thrust area "${thrustArea || 'Core Execution'}".
+        Return ONLY a valid JSON array of strings. Example: ["KPI 1", "KPI 2", "KPI 3"]. No markdown fences, no explanatory text.`,
+      });
+
+      const text = response.text().trim();
+      const jsonText = text.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+      const parsed = JSON.parse(jsonText);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (err) {
+      console.warn("[goalgrid] Gemini Goal Recommendations failed, using mockup:", err.message);
+    }
+  }
+
+  // ─── High-Fidelity Mock Fallback ──────────────────────────────────────────
   const recommendations = {
     "Sales": [
       "Increase quarterly revenue by 20% through new client acquisition.",
