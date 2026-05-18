@@ -16,7 +16,17 @@ exports.submit = asyncHandler(async (req, res) => {
   if (!g) throw httpError(404, "Not found");
   
   const me = req.user;
-  if (g.employee_id !== me.id && me.role !== "admin") {
+  const isOwner = g.employee_id === me.id;
+  const isAdmin = me.role === "admin";
+
+  // Managers can submit check-ins on behalf of their direct reports
+  let isTeamManager = false;
+  if (!isOwner && !isAdmin && me.role === "manager") {
+    const emp = await (require("../models/User")).findOne({ id: g.employee_id }).lean();
+    isTeamManager = emp && emp.manager_id === me.id;
+  }
+
+  if (!isOwner && !isAdmin && !isTeamManager) {
     throw httpError(403, "Forbidden");
   }
 

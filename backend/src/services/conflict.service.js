@@ -1,7 +1,6 @@
 const Goal = require("../models/Goal");
 const User = require("../models/User");
 const Conflict = require("../models/Conflict");
-const { GoogleGenAI } = require("@google/genai"); // Standard Google Gen AI SDK
 
 // Hardcoded semantic conflict rules for high-fidelity fallback
 const SEMANTIC_CONFLICTS = [
@@ -46,6 +45,7 @@ async function runConflictDetectorInternal() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (apiKey) {
     try {
+      const { GoogleGenAI } = require("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
       const goalsList = activeGoals.map(g => ({
         id: g.id,
@@ -78,26 +78,29 @@ async function runConflictDetectorInternal() {
         });
 
         const text = response.text().trim();
-        // Remove markdown formatting if the model returned it
         const jsonText = text.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-        const parsed = JSON.parse(jsonText);
-
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            const g1 = activeGoals.find(g => g.id === item.goal1_id);
-            const g2 = activeGoals.find(g => g.id === item.goal2_id);
-            if (g1 && g2) {
-              detectedConflicts.push({
-                goal1_id: g1.id,
-                goal2_id: g2.id,
-                goal1_title: g1.title,
-                goal2_title: g2.title,
-                conflict_type: item.conflict_type || "Resource Mismatch",
-                severity: item.severity || "medium",
-                explanation: item.explanation
-              });
+        
+        try {
+          const parsed = JSON.parse(jsonText);
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+              const g1 = activeGoals.find(g => g.id === item.goal1_id);
+              const g2 = activeGoals.find(g => g.id === item.goal2_id);
+              if (g1 && g2) {
+                detectedConflicts.push({
+                  goal1_id: g1.id,
+                  goal2_id: g2.id,
+                  goal1_title: g1.title,
+                  goal2_title: g2.title,
+                  conflict_type: item.conflict_type || "Resource Mismatch",
+                  severity: item.severity || "medium",
+                  explanation: item.explanation
+                });
+              }
             }
           }
+        } catch (parseError) {
+          console.error("[goalgrid] Failed to parse AI response, falling back to keyword matcher.");
         }
       }
     } catch (e) {
@@ -105,14 +108,18 @@ async function runConflictDetectorInternal() {
     }
   }
 
-  // Fallback Rule-Based Keyword Matcher (always runs to augment or serve as primary when API key is missing)
+  // ─── Fallback Rule-Based Keyword Matcher ───────────────────────────────────
+  // Always runs when:
+  //   1. GEMINI_API_KEY is missing
+  //   2. Gemini threw an error
+  //   3. Gemini returned 0 detected conflicts
   if (detectedConflicts.length === 0) {
     for (let i = 0; i < activeGoals.length; i++) {
       for (let j = i + 1; j < activeGoals.length; j++) {
         const g1 = activeGoals[i];
         const g2 = activeGoals[j];
 
-        // Ensure different departments or owners to make it a cross-goal conflict
+        // Only flag cross-department or cross-owner pairs
         const d1 = userMap[g1.employee_id]?.department || "Unassigned";
         const d2 = userMap[g2.employee_id]?.department || "Unassigned";
         if (d1 === d2 && g1.employee_id === g2.employee_id) continue;

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { motion } from "framer-motion";
 
 const TeamPerformance = () => {
   const [team, setTeam] = useState([]);

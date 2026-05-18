@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import api, { API_BASE } from "../lib/api";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { 
@@ -14,6 +14,7 @@ import AISmartAssistant from "../components/AISmartAssistant";
 import { useAuth } from "../context/AuthContext";
 
 const Goals = () => {
+  const { user } = useAuth();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -199,7 +200,7 @@ const Goals = () => {
                       <Lock className="w-4 h-4 text-muted-foreground" />
                     ) : (
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {useAuth().user?.role === "admin" && (
+                        {user?.role === "admin" && (
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-500" onClick={() => unlockGoal(goal.id)}>
                             <Lock className="w-3 h-3" />
                           </Button>
