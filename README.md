@@ -18,6 +18,8 @@ GoalGrid is a comprehensive MERN stack platform designed for corporate performan
 ---
 
 ### 🏗️ Visual Architecture Diagram
+![System Architecture Diagram](architecture_diagram.png)
+
 ```mermaid
 graph TD
     Client[React Frontend / Vite / Tailwind] <--> |HTTPS / JWT Auth| Server[Express Server / Node.js]
