@@ -113,6 +113,8 @@ GoalGrid is architected as an enterprise-grade MERN application, optimized for $
          ├─→ Node-Cron Reminders ──→ Brevo SMTP Alerting
          └─→ AI Service Core ──→ Anthropic Claude & Google Gemini
     ```
+*   **Visual Database Schema (ERD Blueprint)**: 
+    *   Refer to `database_erd_blueprint.png` in the repository root for the full MongoDB collections data model schema (Users, Goals, Conflicts, Scenarios, and Audit Logs relational references).
 
 ---
 
