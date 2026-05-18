@@ -60,7 +60,20 @@ const Login = () => {
       toast.success(`Welcome back! Logged in as ${demoEmail}`);
       navigate("/");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Login failed");
+      // If the first attempt failed, let's try the default password "Password@123" as a fallback
+      const defaultPass = "Password@123";
+      if (demoPassword !== defaultPass) {
+        try {
+          setPassword(defaultPass);
+          await login(demoEmail, defaultPass);
+          toast.success(`Welcome back! Logged in as ${demoEmail}`);
+          navigate("/");
+        } catch (fallbackErr) {
+          toast.error(fallbackErr.response?.data?.detail || "Login failed");
+        }
+      } else {
+        toast.error(err.response?.data?.detail || "Login failed");
+      }
     } finally {
       setLoading(false);
     }
