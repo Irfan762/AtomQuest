@@ -2,6 +2,33 @@
 
 GoalGrid is a comprehensive MERN stack platform designed for corporate performance tracking. It enables employees to define goals, managers to approve them, and teams to monitor quarterly progress with precision formulas.
 
+### 🔗 Live Deployments & Media
+*   **Live Demo (Vercel)**: [goalgrid.vercel.app](https://goalgrid.vercel.app) *(Deploying)*
+*   **API Base (Render)**: [goalgrid-api.onrender.com](https://goalgrid-api.onrender.com) *(Deploying)*
+*   **Recorded Video Walkthrough (Loom/YouTube)**: [GoalGrid Product Tour](https://www.youtube.com/watch?v=dQw4w9WgXcQ) *(Placeholder)*
+
+---
+
+### 🎨 Visual Screenshots
+
+| Personal Dashboard | Goal Cascade Tree | AI SMART Assistant | What-If Simulator |
+| :--- | :--- | :--- | :--- |
+| ![Dashboard](https://placehold.co/600x400/0f172a/3b82f6?text=Dashboard+Pulse) | ![Cascade Tree](https://placehold.co/600x400/0f172a/6366f1?text=Alignment+Tree) | ![SMART Goal](https://placehold.co/600x400/0f172a/10b981?text=SMART+Goal+Audit) | ![Simulator](https://placehold.co/600x400/0f172a/f59e0b?text=What-If+Simulation) |
+
+---
+
+### 🏗️ Visual Architecture Diagram
+```mermaid
+graph TD
+    Client[React Frontend / Vite / Tailwind] <--> |HTTPS / JWT Auth| Server[Express Server / Node.js]
+    Server <--> |Mongoose ODM| DB[(MongoDB Atlas Cloud)]
+    Server <--> |@google/genai SDK| Gemini[Google Gemini 2.5 Flash API]
+    Server --> |Node-Cron / Nodemailer| SMTP[SMTP Email Server]
+    Server --> |ExcelJS / Json2Csv| Reports[XLSX & CSV Exporter]
+```
+
+---
+
 ## 🚀 Key Features
 
 - **AI SMART Goal Assistant**: Real-time analysis and optimization of goals into SMART criteria with scoring.
