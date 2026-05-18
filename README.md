@@ -2,35 +2,6 @@
 
 GoalGrid is a comprehensive MERN stack platform designed for corporate performance tracking. It enables employees to define goals, managers to approve them, and teams to monitor quarterly progress with precision formulas.
 
-### 🔗 Live Deployments & Media
-*   **Live Demo (Vercel)**: [goalgrid.vercel.app](https://goalgrid.vercel.app) *(Deploying)*
-*   **API Base (Render)**: [goalgrid-api.onrender.com](https://goalgrid-api.onrender.com) *(Deploying)*
-*   **Recorded Video Walkthrough (Loom/YouTube)**: [GoalGrid Product Tour](https://www.youtube.com/watch?v=dQw4w9WgXcQ) *(Placeholder)*
-
----
-
-### 🎨 Visual Screenshots
-
-| Personal Dashboard | Goal Cascade Tree | AI SMART Assistant | What-If Simulator |
-| :--- | :--- | :--- | :--- |
-| ![Dashboard](https://placehold.co/600x400/0f172a/3b82f6?text=Dashboard+Pulse) | ![Cascade Tree](https://placehold.co/600x400/0f172a/6366f1?text=Alignment+Tree) | ![SMART Goal](https://placehold.co/600x400/0f172a/10b981?text=SMART+Goal+Audit) | ![Simulator](https://placehold.co/600x400/0f172a/f59e0b?text=What-If+Simulation) |
-
----
-
-### 🏗️ Visual Architecture Diagram
-![System Architecture Diagram](architecture_diagram.png)
-
-```mermaid
-graph TD
-    Client[React Frontend / Vite / Tailwind] <--> |HTTPS / JWT Auth| Server[Express Server / Node.js]
-    Server <--> |Mongoose ODM| DB[(MongoDB Atlas Cloud)]
-    Server <--> |@google/genai SDK| Gemini[Google Gemini 2.5 Flash API]
-    Server --> |Node-Cron / Nodemailer| SMTP[SMTP Email Server]
-    Server --> |ExcelJS / Json2Csv| Reports[XLSX & CSV Exporter]
-```
-
----
-
 ## 🚀 Key Features
 
 - **AI SMART Goal Assistant**: Real-time analysis and optimization of goals into SMART criteria with scoring.
@@ -69,12 +40,14 @@ graph TD
 ## 💻 Installation & Setup
 
 ### Backend
+
 1. `cd backend`
 2. `npm install`
 3. Create `.env` based on `.env.example`.
 4. `npm start`
 
 ### Frontend
+
 1. `cd frontend`
 2. `npm install`
 3. Create `.env` based on `.env.example`.
@@ -84,11 +57,11 @@ graph TD
 
 The database has been seeded with a production-grade enterprise organizational hierarchy. Use the floating **Hackathon Demo Panel** in the bottom-left corner to switch perspectives with one click, or log in manually using:
 
-| Role | Email | Password | Department |
-| :--- | :--- | :--- | :--- |
-| **Admin CEO** | `admin@company.com` | `Password@123` | Leadership |
-| **Manager** | `manager@company.com` | `Password@123` | Sales |
-| **Employee** | `alice@company.com` | `Password@123` | Sales |
+| Role          | Email                 | Password       | Department |
+| :------------ | :-------------------- | :------------- | :--------- |
+| **Admin CEO** | `admin@company.com`   | `Password@123` | Leadership |
+| **Manager**   | `manager@company.com` | `Password@123` | Sales      |
+| **Employee**  | `alice@company.com`   | `Password@123` | Sales      |
 
 ---
 
@@ -97,18 +70,21 @@ The database has been seeded with a production-grade enterprise organizational h
 GoalGrid has been upgraded with five unique, high-fidelity strategic features designed to satisfy enterprise governance needs:
 
 ### 1. Goal Alignment Cascade Tree (`/alignment-tree`)
+
 - **What it is**: An interactive, animated parent-child tree mapping the flow of strategic objectives from the **CEO** -> **Managers** -> **Employees**.
 - **Special Integrations**:
   - Automatically alerts managers of **Orphaned Goals** (employee objectives lacking a parent/department linkage).
   - Computes a global **Strategy Alignment Score** representing corporate OKR compliance.
 
 ### 2. Employee Wellbeing Pulse Tracker (`/wellbeing`)
+
 - **What it is**: A mood tracker integrated directly into the quarterly check-in submission. Employees log their emotional state: Confident (😊), Challenged (😐), Struggling (😰), or Blocked (🚨).
 - **Special Integrations**:
   - Automatically dispatches **instant email and notification alerts** to the employee's manager upon logging distressed states.
   - Renders a department-by-department **Team Wellbeing Heatmap** and global stress indicators for leadership analysis.
 
 ### 3. AI Goal Conflict Detector (`/conflicts`)
+
 - **What it is**: A semantic scanner powered by the **Google Gemini API** (with high-fidelity rule-based keyword falls) that detects cost/headcount/resource conflicts across departments (e.g., hiring backend staff vs tech budget reductions).
 - **Special Integrations**:
   - Triggers automatically upon goal approvals.
@@ -116,12 +92,14 @@ GoalGrid has been upgraded with five unique, high-fidelity strategic features de
   - Displays real-time warning indicators on individual goal cards and the main executive dashboard.
 
 ### 4. Goal Timeline Gantt View (`/timeline`)
+
 - **What it is**: A horizontal, monthly bar chart plotting goal schedules and operational durations from `startDate` to `deadline`.
 - **Special Integrations**:
   - Color-coded bar representations corresponding to goal progress statuses.
   - **Workload Alert system** that automatically flags monthly clusters if an employee or department has too many active deadlines due in the same calendar span.
 
 ### 5. What-If Scenario Simulator (`/scenarios`)
+
 - **What it is**: A sandbox slider interface enabling managers to model prospective performance shifts.
 - **Special Integrations**:
   - Live recalculation of overall organization progress scores and department averages.
@@ -131,4 +109,4 @@ GoalGrid has been upgraded with five unique, high-fidelity strategic features de
 
 ---
 
-*Submitted for Corporate OKR Performance Hackathon 2026.*
+_Submitted for Corporate OKR Performance Hackathon 2026._
