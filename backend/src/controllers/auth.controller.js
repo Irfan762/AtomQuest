@@ -34,9 +34,9 @@ exports.register = asyncHandler(async (req, res) => {
 exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) throw httpError(400, "email and password are required");
-  const user = await User.findOne({ email: String(email).toLowerCase() });
+  const user = await User.findOne({ email: String(email).trim().toLowerCase() });
   if (!user || user.is_deleted) throw httpError(401, "Invalid email or password");
-  const ok = await bcrypt.compare(password, user.password_hash);
+  const ok = await bcrypt.compare(String(password).trim(), user.password_hash);
   if (!ok) throw httpError(401, "Invalid email or password");
   const access = createAccessToken(user);
   const refresh = createRefreshToken(user);

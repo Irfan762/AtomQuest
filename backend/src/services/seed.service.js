@@ -18,30 +18,30 @@ async function upsertSeedUser({ name, email, password, role, manager_id = null, 
 async function seedDemoUsers() {
   const admin = await upsertSeedUser({
     name: "Admin User",
-    email: process.env.ADMIN_EMAIL || "admin@company.com",
-    password: process.env.ADMIN_PASSWORD || "Admin@123",
+    email: (process.env.ADMIN_EMAIL || "admin@company.com").trim(),
+    password: (process.env.ADMIN_PASSWORD || "Admin@123").trim(),
     role: "admin",
     department: "Operations",
   });
   const manager = await upsertSeedUser({
     name: "Manager User",
-    email: process.env.MANAGER_EMAIL || "manager@company.com",
-    password: process.env.MANAGER_PASSWORD || "Manager@123",
+    email: (process.env.MANAGER_EMAIL || "manager@company.com").trim(),
+    password: (process.env.MANAGER_PASSWORD || "Manager@123").trim(),
     role: "manager",
     department: "Engineering",
   });
   await upsertSeedUser({
     name: "Alice Employee",
-    email: process.env.EMP1_EMAIL || "alice@company.com",
-    password: process.env.EMP1_PASSWORD || "Alice@123",
+    email: (process.env.EMP1_EMAIL || "alice@company.com").trim(),
+    password: (process.env.EMP1_PASSWORD || "Alice@123").trim(),
     role: "employee",
     manager_id: manager.id,
     department: "Engineering",
   });
   await upsertSeedUser({
     name: "Bob Employee",
-    email: process.env.EMP2_EMAIL || "bob@company.com",
-    password: process.env.EMP2_PASSWORD || "Bob@123",
+    email: (process.env.EMP2_EMAIL || "bob@company.com").trim(),
+    password: (process.env.EMP2_PASSWORD || "Bob@123").trim(),
     role: "employee",
     manager_id: manager.id,
     department: "Engineering",
